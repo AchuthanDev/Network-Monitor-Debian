@@ -44,9 +44,9 @@ function App() {
         <header className="hero">
           <div>
             <p className="eyebrow">Server Internet Usage</p>
-            <h1>Accurate accounting starts in Phase 2</h1>
+            <h1>Server Internet accounting is collector-driven</h1>
             <p>
-              Bootstrap mode is active. The dashboard will show unavailable states until real collector data is verified.
+              The dashboard shows unavailable states whenever the collector cannot safely measure bytes. NIC totals are never used as Internet usage.
             </p>
           </div>
           <div className="status-pill">
@@ -56,8 +56,8 @@ function App() {
         </header>
 
         <section className="grid">
-          <MetricCard label="Internet Download Today" value="Unavailable" detail="No fake production data" />
-          <MetricCard label="Internet Upload Today" value="Unavailable" detail="Waiting for collector" />
+          <MetricCard label="Internet Download Today" value="Unavailable" detail="Waiting for conntrack data" />
+          <MetricCard label="Internet Upload Today" value="Unavailable" detail="No fake production data" />
           <MetricCard label="LAN Traffic Today" value="Unavailable" detail="Tracked separately" />
           <MetricCard label="Docker Internal" value="Unavailable" detail="Excluded from Internet totals" />
         </section>
@@ -70,7 +70,7 @@ function App() {
           <ul>
             <li>Public remote IP traffic counts as server Internet usage once.</li>
             <li>LAN, loopback, and Docker internal traffic never affect Internet quota.</li>
-            <li>Host-network containers are attributed through process and cgroup metadata, not Docker NET I/O.</li>
+            <li>Phase 2 uses conntrack byte deltas; process/container attribution follows in later phases.</li>
           </ul>
         </section>
       </section>

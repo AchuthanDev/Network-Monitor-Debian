@@ -11,7 +11,7 @@ func TestDashboardDoesNotReturnFakeMetrics(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard", nil)
 	response := httptest.NewRecorder()
 
-	writeDashboard(response, request)
+	writeDashboard(response, request, nil)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", response.Code)

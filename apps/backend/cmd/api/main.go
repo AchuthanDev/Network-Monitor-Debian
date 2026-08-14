@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/AchuthanDev/Network-Monitor-Debian/apps/backend/internal/db"
 )
 
 type healthResponse struct {
@@ -15,8 +18,10 @@ type healthResponse struct {
 }
 
 type dashboardResponse struct {
-	Status  string `json:"status"`
-	Message string `json:"message"`
+	Status      string         `json:"status"`
+	Message     string         `json:"message,omitempty"`
+	Today       db.UsageTotals `json:"today"`
+	GeneratedAt string         `json:"generated_at"`
 }
 
 func main() {
@@ -26,11 +31,25 @@ func main() {
 
 	bind := getenv("NETWORK_MONITOR_BIND_ADDRESS", "0.0.0.0")
 	port := getenv("NETWORK_MONITOR_API_PORT", "8080")
+	databaseURL := getenv("NETWORK_MONITOR_DATABASE_URL", "")
+
+	ctx := context.Background()
+	store, err := db.New(ctx, databaseURL)
+	if err != nil {
+		slog.Warn("database unavailable", "error", err)
+	} else {
+		defer store.Close()
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", writeHealth)
 	mux.HandleFunc("GET /api/v1/health", writeHealth)
-	mux.HandleFunc("GET /api/v1/dashboard", writeDashboard)
+	mux.HandleFunc("GET /api/v1/dashboard", func(w http.ResponseWriter, r *http.Request) {
+		writeDashboard(w, r, store)
+	})
+	mux.HandleFunc("GET /api/v1/network/hourly", func(w http.ResponseWriter, r *http.Request) {
+		writeHourly(w, r, store)
+	})
 
 	server := &http.Server{
 		Addr:              bind + ":" + port,
@@ -53,10 +72,66 @@ func writeHealth(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-func writeDashboard(w http.ResponseWriter, _ *http.Request) {
+func writeDashboard(w http.ResponseWriter, r *http.Request, store *db.Store) {
+	if store == nil {
+		writeJSON(w, http.StatusOK, dashboardResponse{
+			Status:      "unavailable",
+			Message:     "Database is unavailable. No production metrics are fabricated.",
+			GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		})
+		return
+	}
+
+	hasData, err := store.HasTrafficData(r.Context())
+	if err != nil || !hasData {
+		writeJSON(w, http.StatusOK, dashboardResponse{
+			Status:      "unavailable",
+			Message:     "No verified traffic samples are available yet.",
+			GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		})
+		return
+	}
+
+	totals, err := store.TodayTotals(r.Context(), time.Now())
+	if err != nil {
+		writeJSON(w, http.StatusOK, dashboardResponse{
+			Status:      "unavailable",
+			Message:     "Traffic totals are unavailable from the database.",
+			GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		})
+		return
+	}
+
 	writeJSON(w, http.StatusOK, dashboardResponse{
-		Status:  "unavailable",
-		Message: "Real traffic accounting starts in Phase 2. No production metrics are fabricated.",
+		Status:      "ok",
+		Today:       totals,
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func writeHourly(w http.ResponseWriter, r *http.Request, store *db.Store) {
+	if store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"status":  "unavailable",
+			"message": "database unavailable",
+		})
+		return
+	}
+	to := time.Now().UTC()
+	from := to.Add(-24 * time.Hour)
+	buckets, err := store.Hourly(r.Context(), from, to)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"status":  "error",
+			"message": "failed to query hourly traffic",
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "ok",
+		"from":   from.Format(time.RFC3339),
+		"to":     to.Format(time.RFC3339),
+		"data":   buckets,
 	})
 }
 

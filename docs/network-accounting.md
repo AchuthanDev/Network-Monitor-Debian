@@ -25,7 +25,19 @@ They also cannot reliably identify process or container ownership. They are usef
 
 ## Primary Collector Design
 
-Phase 2 should use a Linux-native collector with these layers:
+Phase 2 implements conservative conntrack snapshot accounting first. The collector reads host conntrack flow counters, classifies the remote endpoint, calculates positive byte deltas from the previous sample, and writes only those deltas to PostgreSQL.
+
+The first snapshot is treated as baseline. This prevents the system from counting bytes that were transferred before the collector started.
+
+Requirements for Phase 2 accounting:
+
+- `/proc/net/nf_conntrack` must be readable by the collector.
+- `net.netfilter.nf_conntrack_acct=1` must be enabled before flows are created, otherwise byte counters are not available.
+- Collector must run with host PID/network visibility as declared in Docker Compose.
+
+If these requirements are not met, the collector health endpoint reports `accounting: unavailable` and does not fall back to NIC totals.
+
+Future eBPF collection should use these layers:
 
 1. eBPF socket/cgroup hooks record byte deltas at the process or cgroup boundary.
 2. Socket metadata maps traffic to PID, command, UID, cgroup, and container when available.
@@ -59,11 +71,14 @@ Every traffic record must include:
 
 The production collector should select one authoritative accounting point per mode:
 
+- Phase 2 mode: conntrack flow accounting.
 - Primary mode: socket/cgroup accounting.
 - Reconciliation mode: interface counters only as comparison data.
 - Fallback mode: conntrack accounting, with reduced attribution confidence.
 
 The API must never sum authoritative records and reconciliation records together.
+
+In Phase 2, double counting is avoided by tracking conntrack flow keys and storing only byte deltas from that flow's cumulative counters. A Docker packet may appear on veth, bridge, and host NIC interfaces, but interface counters are not used for Internet totals.
 
 ## Direction Semantics
 

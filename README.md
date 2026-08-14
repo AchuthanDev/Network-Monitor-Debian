@@ -37,9 +37,9 @@ docker compose -f deployments/docker/compose.yml up -d
 
 Default local URLs:
 
-- Web: `http://localhost:5173`
-- API: `http://localhost:8080`
-- Collector health: `http://localhost:9091/healthz`
+- Web: `http://localhost:18000`
+- API: `http://localhost:18080`
+- Collector health: `http://localhost:19091/healthz`
 
 ## Development
 

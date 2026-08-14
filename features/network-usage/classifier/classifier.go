@@ -9,11 +9,11 @@ import (
 type TrafficClass string
 
 const (
-	TrafficInternet      TrafficClass = "internet"
-	TrafficLAN           TrafficClass = "lan"
-	TrafficDocker        TrafficClass = "docker_internal"
-	TrafficLoopback      TrafficClass = "loopback"
-	TrafficUnknown       TrafficClass = "unknown"
+	TrafficInternet TrafficClass = "internet"
+	TrafficLAN      TrafficClass = "lan"
+	TrafficDocker   TrafficClass = "docker_internal"
+	TrafficLoopback TrafficClass = "loopback"
+	TrafficUnknown  TrafficClass = "unknown"
 )
 
 type Config struct {
@@ -22,7 +22,7 @@ type Config struct {
 }
 
 type Result struct {
-	Class             TrafficClass
+	Class            TrafficClass
 	CountsAsInternet bool
 	Reason           string
 }
