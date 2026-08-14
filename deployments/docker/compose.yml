@@ -1,0 +1,94 @@
+name: network-monitor-debian
+
+services:
+  network-monitor-db:
+    image: postgres:17.5-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-network_monitor}
+      POSTGRES_USER: ${POSTGRES_USER:-network_monitor}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-network_monitor}
+    volumes:
+      - network-monitor-db:/var/lib/postgresql/data
+      - ../../infrastructure/database/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - network-monitor-internal
+
+  network-monitor-api:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/api.Dockerfile
+    restart: unless-stopped
+    environment:
+      NETWORK_MONITOR_BIND_ADDRESS: 0.0.0.0
+      NETWORK_MONITOR_API_PORT: 8080
+      NETWORK_MONITOR_DATABASE_URL: ${NETWORK_MONITOR_DATABASE_URL:-postgres://network_monitor:network_monitor@network-monitor-db:5432/network_monitor?sslmode=disable}
+    depends_on:
+      network-monitor-db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "/bin/network-monitor-api", "-healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - network-monitor-internal
+      - network-monitor-public
+
+  network-monitor-collector:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/collector.Dockerfile
+    restart: unless-stopped
+    environment:
+      NETWORK_MONITOR_BIND_ADDRESS: 0.0.0.0
+      NETWORK_MONITOR_COLLECTOR_PORT: 9091
+      NETWORK_MONITOR_LAN_CIDRS: ${NETWORK_MONITOR_LAN_CIDRS:-192.168.1.0/24,10.0.0.0/8,172.16.0.0/12,127.0.0.0/8}
+      NETWORK_MONITOR_DOCKER_CIDRS: ${NETWORK_MONITOR_DOCKER_CIDRS:-172.17.0.0/16,172.18.0.0/16,172.19.0.0/16,172.20.0.0/16,172.21.0.0/16}
+    pid: host
+    network_mode: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_ADMIN
+      - SYS_RESOURCE
+      - BPF
+      - PERFMON
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "/bin/network-monitor-collector", "-healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  network-monitor-web:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/web.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - network-monitor-api
+    ports:
+      - "5173:80"
+    networks:
+      - network-monitor-public
+
+volumes:
+  network-monitor-db:
+
+networks:
+  network-monitor-internal:
+    internal: true
+  network-monitor-public:

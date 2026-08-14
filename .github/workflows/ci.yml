@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "feature/**"
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - working-directory: features/network-usage
+        run: go test ./...
+      - working-directory: apps/collector
+        run: go test ./...
+      - working-directory: apps/backend
+        run: go test ./...
+      - working-directory: apps/collector
+        run: go build ./cmd/collector
+      - working-directory: apps/backend
+        run: go build ./cmd/api
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+      - working-directory: apps/frontend
+        run: npm install
+      - working-directory: apps/frontend
+        run: npm run lint
+      - working-directory: apps/frontend
+        run: npm test
+      - working-directory: apps/frontend
+        run: npm run build
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose -f deployments/docker/compose.yml config
+      - run: docker build -f deployments/docker/api.Dockerfile .
+      - run: docker build -f deployments/docker/collector.Dockerfile .
+      - run: docker build -f deployments/docker/web.Dockerfile .

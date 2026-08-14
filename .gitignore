@@ -1,0 +1,12 @@
+.env
+.DS_Store
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+*.log
+tmp/
+bin/
+.pytest_cache/
+.vscode/
+apps/frontend/.vite/
