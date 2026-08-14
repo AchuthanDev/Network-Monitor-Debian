@@ -2,12 +2,15 @@ package conntrack
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"net/netip"
 	"strconv"
 	"strings"
 )
+
+var ErrByteCountersUnavailable = errors.New("conntrack byte accounting unavailable in line")
 
 type Tuple struct {
 	SrcIP   netip.Addr
@@ -56,6 +59,9 @@ func ParseReader(reader io.Reader) ([]Flow, error) {
 		}
 		flow, err := ParseLine(line)
 		if err != nil {
+			if errors.Is(err, ErrByteCountersUnavailable) {
+				continue
+			}
 			return nil, err
 		}
 		flows = append(flows, flow)
@@ -143,7 +149,7 @@ func ParseLine(line string) (Flow, error) {
 		return Flow{}, fmt.Errorf("conntrack line missing original tuple")
 	}
 	if flow.Counters.OriginalBytes == 0 && flow.Counters.ReplyBytes == 0 && !strings.Contains(line, "bytes=") {
-		return Flow{}, fmt.Errorf("conntrack byte accounting unavailable in line")
+		return Flow{}, ErrByteCountersUnavailable
 	}
 	return flow, nil
 }

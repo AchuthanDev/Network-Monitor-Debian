@@ -22,6 +22,8 @@ Required before Phase 2 is considered complete:
 
 Current host inspection on 2026-08-14 showed `net.netfilter.nf_conntrack_acct=0`. In that state Phase 2 must report accounting unavailable. Enabling conntrack byte accounting is an explicit deployment action, not something the application silently changes.
 
+Validation after enabling `nf_conntrack_acct=1` showed that conntrack snapshot polling undercounted controlled downloads. Phase 2 now uses nftables counters for authoritative aggregate totals and keeps conntrack as a fallback/diagnostic path.
+
 ## Validation Procedure
 
 Controlled tests should record expected byte sizes and measured results:

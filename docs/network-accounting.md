@@ -25,17 +25,21 @@ They also cannot reliably identify process or container ownership. They are usef
 
 ## Primary Collector Design
 
-Phase 2 implements conservative conntrack snapshot accounting first. The collector reads host conntrack flow counters, classifies the remote endpoint, calculates positive byte deltas from the previous sample, and writes only those deltas to PostgreSQL.
+Phase 2 uses nftables counters as the authoritative total byte accounting layer. The collector creates a dedicated `inet network_monitor` table with non-verdict accounting chains on `input`, `output`, and `forward`. The rules count public-IP traffic on the detected default interface as Internet and RFC1918/private traffic as LAN. The chains use `policy accept` and do not block or redirect traffic.
+
+Conntrack snapshot accounting remains as a fallback/diagnostic path. It is not the authoritative total counter because snapshot polling can undercount short-lived flows.
 
 The first snapshot is treated as baseline. This prevents the system from counting bytes that were transferred before the collector started.
 
-Requirements for Phase 2 accounting:
+Temporary Phase 2 limitation: nftables totals are accurate for aggregate Internet/LAN usage, but they do not yet provide process/container/destination attribution. Phase 3 should add process attribution using eBPF/socket metadata while preserving nftables totals as a reconciliation source.
+
+Requirements for conntrack fallback accounting:
 
 - `/proc/net/nf_conntrack` must be readable by the collector.
 - `net.netfilter.nf_conntrack_acct=1` must be enabled before flows are created, otherwise byte counters are not available.
 - Collector must run with host PID/network visibility as declared in Docker Compose.
 
-If these requirements are not met, the collector health endpoint reports `accounting: unavailable` and does not fall back to NIC totals.
+If nftables setup fails and conntrack requirements are not met, the collector health endpoint reports `accounting: unavailable` and does not fall back to NIC totals.
 
 Future eBPF collection should use these layers:
 
@@ -71,7 +75,7 @@ Every traffic record must include:
 
 The production collector should select one authoritative accounting point per mode:
 
-- Phase 2 mode: conntrack flow accounting.
+- Phase 2 mode: nftables host-interface accounting.
 - Primary mode: socket/cgroup accounting.
 - Reconciliation mode: interface counters only as comparison data.
 - Fallback mode: conntrack accounting, with reduced attribution confidence.

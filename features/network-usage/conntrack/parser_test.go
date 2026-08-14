@@ -1,6 +1,7 @@
 package conntrack
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -37,7 +38,19 @@ func TestParseReader(t *testing.T) {
 
 func TestParseLineRequiresByteCounters(t *testing.T) {
 	_, err := ParseLine("ipv4 2 tcp 6 20 SYN_SENT src=192.168.1.10 dst=8.8.8.8 sport=1 dport=443")
-	if err == nil {
+	if !errors.Is(err, ErrByteCountersUnavailable) {
 		t.Fatal("expected missing byte accounting error")
+	}
+}
+
+func TestParseReaderSkipsLinesWithoutByteCounters(t *testing.T) {
+	input := strings.NewReader("ipv4 2 tcp 6 20 SYN_SENT src=192.168.1.10 dst=8.8.8.8 sport=1 dport=443\n")
+
+	flows, err := ParseReader(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(flows) != 0 {
+		t.Fatalf("expected skipped flow, got %d", len(flows))
 	}
 }

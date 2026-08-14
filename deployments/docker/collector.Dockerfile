@@ -9,6 +9,7 @@ RUN cd apps/collector && go test ./...
 RUN cd apps/collector && go build -o /out/network-monitor-collector ./cmd/collector
 
 FROM alpine:3.22
+RUN apk add --no-cache nftables
 COPY --from=build /out/network-monitor-collector /bin/network-monitor-collector
 EXPOSE 9091
 ENTRYPOINT ["/bin/network-monitor-collector"]

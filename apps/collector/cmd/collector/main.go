@@ -15,6 +15,7 @@ import (
 	"github.com/AchuthanDev/Network-Monitor-Debian/apps/collector/internal/config"
 	"github.com/AchuthanDev/Network-Monitor-Debian/apps/collector/internal/db"
 	"github.com/AchuthanDev/Network-Monitor-Debian/apps/collector/internal/host"
+	"github.com/AchuthanDev/Network-Monitor-Debian/apps/collector/internal/nft"
 	"github.com/AchuthanDev/Network-Monitor-Debian/features/network-usage/accounting"
 	"github.com/AchuthanDev/Network-Monitor-Debian/features/network-usage/classifier"
 	"github.com/AchuthanDev/Network-Monitor-Debian/features/network-usage/conntrack"
@@ -46,6 +47,7 @@ type sampleTotals struct {
 type collectorState struct {
 	mu           sync.RWMutex
 	status       string
+	mode         string
 	accounting   string
 	lastSampleAt time.Time
 	lastError    string
@@ -65,7 +67,7 @@ func main() {
 	}
 
 	ctx := context.Background()
-	state := &collectorState{status: "starting", accounting: "unavailable"}
+	state := &collectorState{status: "starting", mode: "starting", accounting: "unavailable"}
 
 	route, err := host.Detect(cfg.HostProcRoot)
 	if err != nil {
@@ -101,6 +103,43 @@ func main() {
 }
 
 func runCollector(ctx context.Context, cfg config.Config, writer *db.Writer, state *collectorState, route host.RouteInfo) {
+	if err := nft.Setup(ctx, route.DefaultInterface); err != nil {
+		state.setError("setup nftables accounting", err)
+		runConntrackCollector(ctx, cfg, writer, state, route)
+		return
+	}
+	state.mu.Lock()
+	state.mode = "nftables_counters"
+	state.accounting = "nftables_counters"
+	state.status = "starting"
+	state.mu.Unlock()
+
+	var previous nft.CounterSnapshot
+	ticker := time.NewTicker(cfg.PollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			current, err := nft.ReadCounters(ctx)
+			if err != nil {
+				state.setError("read nftables counters", err)
+				continue
+			}
+			deltas := current.Deltas(previous).ToTrafficDeltas(time.Now().UTC())
+			previous = current
+			if err := writer.WriteDeltas(ctx, deltas); err != nil {
+				state.setError("write nftables deltas", err)
+				continue
+			}
+			state.record("nftables_counters", deltas)
+		}
+	}
+}
+
+func runConntrackCollector(ctx context.Context, cfg config.Config, writer *db.Writer, state *collectorState, route host.RouteInfo) {
 	conntrackPath := filepath.Join(cfg.HostProcRoot, "net", "nf_conntrack")
 	acctPath := filepath.Join(cfg.HostProcRoot, "sys", "net", "netfilter", "nf_conntrack_acct")
 
@@ -111,6 +150,11 @@ func runCollector(ctx context.Context, cfg config.Config, writer *db.Writer, sta
 		state.setError("check conntrack accounting", errors.New("nf_conntrack_acct is disabled; byte-accurate conntrack accounting unavailable"))
 		return
 	}
+	state.mu.Lock()
+	state.mode = "conntrack_snapshot"
+	state.accounting = "conntrack_snapshot"
+	state.status = "starting"
+	state.mu.Unlock()
 
 	matcher := accounting.NewLocalMatcher(host.HostIPs(route), append(host.LocalCIDRs(route), cfg.Classifier.DockerCIDRs...))
 	previous := map[string]conntrack.Counters{}
@@ -134,7 +178,7 @@ func runCollector(ctx context.Context, cfg config.Config, writer *db.Writer, sta
 				continue
 			}
 
-			state.record(deltas)
+			state.record("conntrack_snapshot", deltas)
 		}
 	}
 }
@@ -190,11 +234,12 @@ func (s *collectorState) setError(operation string, err error) {
 	slog.Warn("collector degraded", "operation", operation, "error", err)
 }
 
-func (s *collectorState) record(deltas []accounting.TrafficDelta) {
+func (s *collectorState) record(mode string, deltas []accounting.TrafficDelta) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.status = "ok"
-	s.accounting = "conntrack_snapshot"
+	s.mode = mode
+	s.accounting = mode
 	s.lastError = ""
 	s.lastSampleAt = time.Now().UTC()
 	s.totals.SamplesRead++
@@ -228,7 +273,7 @@ func (s *collectorState) health() healthResponse {
 	return healthResponse{
 		Status:       status,
 		Service:      "network-monitor-collector",
-		Mode:         "conntrack_snapshot",
+		Mode:         s.mode,
 		Accounting:   s.accounting,
 		LastSampleAt: lastSample,
 		LastError:    s.lastError,
