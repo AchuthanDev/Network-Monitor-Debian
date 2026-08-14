@@ -106,8 +106,10 @@ func runCollector(ctx context.Context, cfg config.Config, writer *db.Writer, sta
 
 	if enabled, err := conntrackAccountingEnabled(acctPath); err != nil {
 		state.setError("check conntrack accounting", err)
+		return
 	} else if !enabled {
 		state.setError("check conntrack accounting", errors.New("nf_conntrack_acct is disabled; byte-accurate conntrack accounting unavailable"))
+		return
 	}
 
 	matcher := accounting.NewLocalMatcher(host.HostIPs(route), append(host.LocalCIDRs(route), cfg.Classifier.DockerCIDRs...))

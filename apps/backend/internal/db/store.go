@@ -103,7 +103,7 @@ func (s *Store) Hourly(ctx context.Context, from time.Time, to time.Time) ([]Hou
 	}
 	defer rows.Close()
 
-	var buckets []HourlyBucket
+	buckets := make([]HourlyBucket, 0)
 	for rows.Next() {
 		var bucket HourlyBucket
 		if err := rows.Scan(&bucket.BucketStart, &bucket.TrafficClass, &bucket.DownloadBytes, &bucket.UploadBytes); err != nil {
