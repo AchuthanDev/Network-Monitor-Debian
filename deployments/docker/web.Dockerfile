@@ -7,4 +7,5 @@ RUN npm run build
 
 FROM nginx:1.29.0-alpine
 COPY --from=build /src/apps/frontend/dist /usr/share/nginx/html
+COPY deployments/docker/nginx/default.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80

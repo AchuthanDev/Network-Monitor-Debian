@@ -88,6 +88,8 @@ services:
     restart: unless-stopped
     depends_on:
       - network-monitor-api
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${NETWORK_MONITOR_WEB_HOST_PORT:-18000}:80"
     networks:
