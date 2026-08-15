@@ -30,14 +30,20 @@ type Report struct {
 }
 
 type Interface struct {
-	Name          string   `json:"name"`
-	HardwareAddr  string   `json:"hardware_addr"`
-	Flags         []string `json:"flags"`
-	IPv4Addresses []string `json:"ipv4_addresses"`
-	IPv6Addresses []string `json:"ipv6_addresses"`
-	OperState     string   `json:"oper_state,omitempty"`
-	Carrier       string   `json:"carrier,omitempty"`
-	SpeedMbps     int      `json:"speed_mbps,omitempty"`
+	Name            string   `json:"name"`
+	HardwareAddr    string   `json:"hardware_addr"`
+	Flags           []string `json:"flags"`
+	IPv4Addresses   []string `json:"ipv4_addresses"`
+	IPv6Addresses   []string `json:"ipv6_addresses"`
+	OperState       string   `json:"oper_state,omitempty"`
+	Carrier         string   `json:"carrier,omitempty"`
+	SpeedMbps       int      `json:"speed_mbps,omitempty"`
+	Driver          string   `json:"driver,omitempty"`
+	ManagedBy       string   `json:"managed_by,omitempty"`
+	ConnectionName  string   `json:"connection_name,omitempty"`
+	HasDefaultRoute bool     `json:"has_default_route"`
+	CandidateLAN    bool     `json:"candidate_lan"`
+	CandidateReason string   `json:"candidate_reason,omitempty"`
 }
 
 type Route struct {
@@ -89,6 +95,7 @@ func Discover(ctx context.Context) Report {
 			report.WANInterface = route.Interface
 		}
 	}
+	report.Interfaces = annotateInterfaces(ctx, report.Interfaces, report.Routes, report.WANInterface, &report)
 	report.DockerBridges = discoverDockerBridges(report.Interfaces)
 	report.DockerNetworks = discoverDockerNetworks(ctx, &report)
 	report.DHCPListeners = discoverListeners(67)
@@ -119,6 +126,7 @@ func discoverInterfaces(report *Report) []Interface {
 			OperState:    readTrimmed("/sys/class/net/" + item.Name + "/operstate"),
 			Carrier:      readTrimmed("/sys/class/net/" + item.Name + "/carrier"),
 			SpeedMbps:    readInt("/sys/class/net/" + item.Name + "/speed"),
+			Driver:       driverName(item.Name),
 		}
 		for _, address := range addresses {
 			prefix, err := netip.ParsePrefix(address.String())
@@ -134,6 +142,83 @@ func discoverInterfaces(report *Report) []Interface {
 		result = append(result, iface)
 	}
 	return result
+}
+
+type nmDevice struct {
+	kind       string
+	state      string
+	connection string
+}
+
+func annotateInterfaces(ctx context.Context, interfaces []Interface, routes []Route, wan string, report *Report) []Interface {
+	defaults := map[string]bool{}
+	for _, route := range routes {
+		if route.Destination == "default" && route.Interface != "" {
+			defaults[route.Interface] = true
+		}
+	}
+	nm := discoverNetworkManagerDevices(ctx, report)
+	for index := range interfaces {
+		iface := &interfaces[index]
+		if defaults[iface.Name] {
+			iface.HasDefaultRoute = true
+		}
+		if item, ok := nm[iface.Name]; ok {
+			iface.ManagedBy = "NetworkManager"
+			if item.connection != "" && item.connection != "--" {
+				iface.ConnectionName = item.connection
+			}
+		}
+		iface.CandidateLAN, iface.CandidateReason = lanCandidate(*iface, wan)
+	}
+	return interfaces
+}
+
+func discoverNetworkManagerDevices(ctx context.Context, report *Report) map[string]nmDevice {
+	report.ToolAvailability["nmcli"] = commandAvailable("nmcli")
+	if !report.ToolAvailability["nmcli"] {
+		return nil
+	}
+	output, err := exec.CommandContext(ctx, "nmcli", "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device", "status").Output()
+	if err != nil {
+		report.Warnings = append(report.Warnings, "nmcli device status failed: "+err.Error())
+		return nil
+	}
+	result := map[string]nmDevice{}
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	for scanner.Scan() {
+		parts := strings.Split(scanner.Text(), ":")
+		if len(parts) < 4 || parts[0] == "" {
+			continue
+		}
+		result[parts[0]] = nmDevice{kind: parts[1], state: parts[2], connection: strings.Join(parts[3:], ":")}
+	}
+	return result
+}
+
+func lanCandidate(iface Interface, wan string) (bool, string) {
+	switch {
+	case iface.Name == "":
+		return false, "unnamed interface"
+	case iface.Name == wan:
+		return false, "primary WAN/default-route interface"
+	case iface.Name == "lo":
+		return false, "loopback interface"
+	case strings.HasPrefix(iface.Name, "docker") || strings.HasPrefix(iface.Name, "br-") || strings.HasPrefix(iface.Name, "veth"):
+		return false, "Docker or virtual interface"
+	case strings.HasPrefix(iface.Name, "wlp") || strings.HasPrefix(iface.Name, "wl"):
+		return false, "Wi-Fi is testing/fallback only; prefer dedicated Ethernet"
+	case iface.HasDefaultRoute:
+		return false, "interface already has a default route"
+	case len(iface.IPv4Addresses) > 0:
+		return false, "interface already has IPv4 configuration"
+	case iface.OperState != "up":
+		return false, "link is not up"
+	case iface.SpeedMbps > 0 && iface.SpeedMbps < 1000:
+		return false, "link speed is below 1 Gbps"
+	default:
+		return true, "dedicated Ethernet candidate for monitored LAN"
+	}
 }
 
 func discoverRoutes(ctx context.Context, report *Report) []Route {
@@ -351,6 +436,18 @@ func readInt(path string) int {
 		return 0
 	}
 	return parsed
+}
+
+func driverName(iface string) string {
+	target, err := os.Readlink("/sys/class/net/" + iface + "/device/driver")
+	if err != nil {
+		return ""
+	}
+	parts := strings.Split(strings.Trim(target, "/"), "/")
+	if len(parts) == 0 {
+		return ""
+	}
+	return parts[len(parts)-1]
 }
 
 func interfaceState(flags []string) string {

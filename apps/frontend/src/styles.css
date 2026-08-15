@@ -252,8 +252,8 @@ h1 {
 }
 
 .table-row.gateway-interface {
-  grid-template-columns: minmax(110px, 0.8fr) minmax(190px, 1.4fr) minmax(130px, 0.9fr) minmax(90px, 0.7fr) minmax(190px, 1.4fr) minmax(140px, 1fr);
-  min-width: 900px;
+  grid-template-columns: minmax(110px, 0.8fr) minmax(190px, 1.3fr) minmax(130px, 0.9fr) minmax(90px, 0.6fr) minmax(90px, 0.7fr) minmax(160px, 1fr) minmax(110px, 0.8fr) minmax(190px, 1.3fr) minmax(140px, 1fr);
+  min-width: 1250px;
 }
 
 .table-row.destination-row {
