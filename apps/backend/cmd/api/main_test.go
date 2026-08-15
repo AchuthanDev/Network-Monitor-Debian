@@ -68,3 +68,61 @@ func TestISPUsageReportsUnavailableWithoutDatabase(t *testing.T) {
 		t.Fatalf("ISP usage should report unavailable without database, got %s", response.Body.String())
 	}
 }
+
+func TestGatewayWizardDisablesApplyWithoutLANInterface(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/gateway/wizard", nil)
+	response := httptest.NewRecorder()
+
+	writeGatewayWizard(response, request, gatewayconfig.Default())
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", response.Code)
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, `"apply_ready":false`) {
+		t.Fatalf("wizard should disable apply without dedicated LAN, got %s", body)
+	}
+	if !strings.Contains(body, "Dedicated LAN interface") {
+		t.Fatalf("wizard should mention LAN selection, got %s", body)
+	}
+}
+
+func TestDestinationsDoNotFabricateRowsWithoutDatabase(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/destinations", nil)
+	response := httptest.NewRecorder()
+
+	writeDestinations(response, request, nil)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", response.Code)
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, `"data":[]`) || !strings.Contains(body, "database unavailable") {
+		t.Fatalf("destinations should report unavailable empty rows, got %s", body)
+	}
+}
+
+func TestClassificationCatalogDocumentsPrivacyBoundary(t *testing.T) {
+	response := httptest.NewRecorder()
+
+	writeClassificationCatalog(response, httptest.NewRequest(http.MethodGet, "/api/v1/classification/catalog", nil))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", response.Code)
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, "no_tls_interception") || !strings.Contains(body, "unknown_https") {
+		t.Fatalf("classification catalog should expose privacy and unknown categories, got %s", body)
+	}
+}
+
+func TestHourlyInvestigationValidatesHour(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/investigation/hour?hour=25", nil)
+	response := httptest.NewRecorder()
+
+	writeHourlyInvestigation(response, request, nil)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", response.Code)
+	}
+}

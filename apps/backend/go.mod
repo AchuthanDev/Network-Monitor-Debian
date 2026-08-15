@@ -4,7 +4,10 @@ go 1.23.0
 
 toolchain go1.23.10
 
-require github.com/AchuthanDev/Network-Monitor-Debian/features/gateway v0.0.0
+require (
+	github.com/AchuthanDev/Network-Monitor-Debian/features/gateway v0.0.0
+	github.com/AchuthanDev/Network-Monitor-Debian/features/traffic-classification v0.0.0
+)
 
 require github.com/jackc/pgx/v5 v5.7.6
 
@@ -18,3 +21,5 @@ require (
 )
 
 replace github.com/AchuthanDev/Network-Monitor-Debian/features/gateway => ../../features/gateway
+
+replace github.com/AchuthanDev/Network-Monitor-Debian/features/traffic-classification => ../../features/traffic-classification
