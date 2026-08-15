@@ -578,13 +578,17 @@ function totalBytes(totals: UsageTotals, prefix: "internet" | "lan" | "docker") 
 
 function OverviewView({
   totals,
+  dashboardStatus,
   collector,
+  hourlyStatus,
   hourlyBuckets,
   updatedAt,
   onRefresh,
 }: {
   totals: UsageTotals;
+  dashboardStatus: EndpointState<DashboardResponse>;
   collector: CollectorResponse | null;
+  hourlyStatus: EndpointState<HourlyResponse>;
   hourlyBuckets: HourlyBucket[];
   updatedAt: Date | null;
   onRefresh: () => void;
@@ -592,6 +596,10 @@ function OverviewView({
   const totalInternet = totalBytes(totals, "internet");
   const totalLAN = totalBytes(totals, "lan");
   const recentHourly = hourlyBuckets.slice(-8).reverse();
+  const sampleTime = collector?.last_sample_at ? new Date(collector.last_sample_at).getTime() : NaN;
+  const sampleAgeMs = Number.isFinite(sampleTime) ? Date.now() - sampleTime : Infinity;
+  const isLive = collector?.status === "ok" && sampleAgeMs <= 15000;
+  const statusText = isLive ? "LIVE" : "STALE DATA";
 
   return (
     <>
@@ -608,6 +616,20 @@ function OverviewView({
         <MetricCard label="Accounting Mode" value={collector?.accounting ?? "Loading"} detail={collector?.last_error ?? "Healthy"} />
         <MetricCard label="Default Interface" value={collector?.route.default_interface ?? "Loading"} detail={`Gateway ${collector?.route.default_gateway ?? "unknown"}`} />
         <MetricCard label="Last Sample" value={formatDateTime(collector?.last_sample_at)} detail={updatedAt ? `UI updated ${updatedAt.toLocaleTimeString()}` : "Waiting"} />
+        <MetricCard label="Data Status" value={statusText} detail={isLive ? "Collector sample is current" : "No recent verified collector sample"} tone={isLive ? "good" : "warning"} />
+      </section>
+
+      <section className="panel">
+        <PanelTitle icon={ShieldAlert} title="System Health" />
+        <div className="scope-grid">
+          <span>API</span><strong>{dashboardStatus.status === "ok" ? "Online" : "Unavailable"}</strong>
+          <span>Collector</span><strong>{isLive ? "Online" : "Stale / unavailable"}</strong>
+          <span>Database</span><strong>{hourlyStatus.status === "ok" ? "Online" : "Unavailable"}</strong>
+          <span>Frontend</span><strong>Online</strong>
+          <span>Pi-hole</span><strong>Detected / read-only</strong>
+          <span>Gateway</span><strong>Disabled</strong>
+          <span>Accounting</span><strong>{collector?.accounting ?? "Unavailable"}</strong>
+        </div>
       </section>
 
       <HourlyTrafficPanel buckets={recentHourly} />
@@ -1297,7 +1319,7 @@ function App() {
         {dashboard.error ? <section className="alert">{dashboard.error}</section> : null}
 
         {activeSection === "overview" ? (
-          <OverviewView totals={totals} collector={collector.data} hourlyBuckets={hourlyBuckets} updatedAt={updatedAt} onRefresh={() => void load()} />
+          <OverviewView totals={totals} dashboardStatus={dashboard} collector={collector.data} hourlyStatus={hourly} hourlyBuckets={hourlyBuckets} updatedAt={updatedAt} onRefresh={() => void load()} />
         ) : null}
         {activeSection === "network" ? <NetworkView totals={totals} hourlyBuckets={hourlyBuckets} /> : null}
         {activeSection === "gateway" ? <GatewayView discovery={gatewayDiscovery} readiness={gatewayReadiness} wizard={gatewayWizard} /> : null}

@@ -10,7 +10,8 @@ RUN cd apps/backend && go test ./...
 RUN cd apps/backend && go build -o /out/network-monitor-api ./cmd/api
 
 FROM alpine:3.22
-RUN adduser -D -H -s /sbin/nologin appuser
+RUN apk add --no-cache tzdata \
+    && adduser -D -H -s /sbin/nologin appuser
 COPY --from=build /out/network-monitor-api /bin/network-monitor-api
 USER appuser
 EXPOSE 8080
