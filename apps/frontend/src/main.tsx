@@ -82,6 +82,12 @@ type GatewayInterface = {
   oper_state?: string;
   carrier?: string;
   speed_mbps?: number;
+  driver?: string;
+  managed_by?: string;
+  connection_name?: string;
+  has_default_route?: boolean;
+  candidate_lan?: boolean;
+  candidate_reason?: string;
 };
 
 type GatewayDiscoveryResponse = {
@@ -110,6 +116,10 @@ type GatewayDiscoveryResponse = {
     ip_forwarding?: {
       ipv4_enabled: boolean;
       ipv6_enabled: boolean;
+      error?: string;
+    };
+    nftables?: {
+      available: boolean;
       error?: string;
     };
     warnings?: string[];
@@ -208,7 +218,12 @@ type DailyReportResponse = {
   internet_bytes: number;
   free_night_bytes: number;
   anytime_bytes: number;
+  classified_bytes: number;
   unknown_bytes: number;
+  classification_coverage: number;
+  top_service?: string;
+  top_category?: string;
+  peak_hour?: string;
   generated_at: string;
 };
 
@@ -657,6 +672,8 @@ function GatewayView({
   const passCount = checks.filter((check) => check.status === "pass").length;
   const failCount = checks.filter((check) => check.status === "fail").length;
   const warningCount = checks.filter((check) => check.status === "warning").length;
+  const check = (name: string) => checks.find((item) => item.name === name);
+  const lanCandidates = discovered?.interfaces?.filter((iface) => iface.candidate_lan) ?? [];
 
   return (
     <>
@@ -664,12 +681,15 @@ function GatewayView({
         Gateway mode is not applied from the dashboard. This page shows read-only discovery, readiness, and the proposed topology before any network change is approved.
       </SectionTitle>
       <section className="grid compact">
-        <MetricCard label="Mode" value={cfg?.mode ?? "server_only"} detail="Current configured monitoring mode" />
-        <MetricCard label="Detected WAN" value={discovered?.wan_interface || "Unavailable"} detail={`Gateway ${discovered?.default_route?.gateway ?? "unknown"}`} />
-        <MetricCard label="Configured LAN" value={cfg?.gateway.lan_interface || "Not selected"} detail={cfg?.gateway.lan_cidr ?? "No monitored LAN active"} tone={cfg?.gateway.lan_interface ? "good" : "warning"} />
-        <MetricCard label="Readiness" value={readiness.data?.ready ? "Ready" : "Not ready"} detail={`${passCount} pass / ${warningCount} warning / ${failCount} fail`} tone={readiness.data?.ready ? "good" : "warning"} />
+        <MetricCard label="Gateway Mode" value={cfg?.mode === "gateway" ? "Enabled" : "Disabled"} detail="No live gateway changes are applied" />
+        <MetricCard label="WAN" value={discovered?.wan_interface || "Unavailable"} detail={`Gateway ${discovered?.default_route?.gateway ?? "unknown"}`} tone={check("wan_interface")?.status === "pass" ? "good" : "warning"} />
+        <MetricCard label="LAN" value={cfg?.gateway.lan_interface || (lanCandidates[0]?.name ?? "Not connected")} detail={lanCandidates[0] ? `${lanCandidates[0].speed_mbps || "unknown"} Mb/s candidate available` : "No suitable dedicated interface detected"} tone={lanCandidates.length > 0 ? "good" : "warning"} />
+        <MetricCard label="nftables" value={discovered?.nftables?.available ? "Installed" : "Missing"} detail={discovered?.nftables?.error ?? "Required before live apply"} tone={discovered?.nftables?.available ? "good" : "warning"} />
         <MetricCard label="IPv4 Forwarding" value={discovered?.ip_forwarding?.ipv4_enabled ? "Enabled" : "Disabled"} detail={discovered?.ip_forwarding?.error ?? "Read-only detected state"} />
-        <MetricCard label="Docker Bridges" value={String(discovered?.docker_bridges?.length ?? 0)} detail="Checked for subnet conflicts" />
+        <MetricCard label="Pi-hole DNS" value={check("pihole_dns_detected")?.status === "pass" ? "Detected" : "Check"} detail={check("pihole_dns_detected")?.reason ?? "Port 53 DNS evidence"} tone={check("pihole_dns_detected")?.status === "pass" ? "good" : "warning"} />
+        <MetricCard label="DHCP Conflict" value={check("dhcp_conflict")?.status === "pass" ? "None" : "Warning"} detail={check("dhcp_conflict")?.reason ?? "No DHCP listener detected"} tone={check("dhcp_conflict")?.status === "pass" ? "good" : "warning"} />
+        <MetricCard label="Accounting Simulation" value={check("accounting_simulation")?.status === "pass" ? "Passed" : "Unknown"} detail="Namespace generated-rule test" tone={check("accounting_simulation")?.status === "pass" ? "good" : "warning"} />
+        <MetricCard label="Ready for Gateway Activation" value={readiness.data?.ready ? "YES" : "NO"} detail={`${passCount} pass / ${warningCount} warning / ${failCount} fail`} tone={readiness.data?.ready ? "good" : "warning"} />
       </section>
 
       <section className="panel">
@@ -700,6 +720,9 @@ function GatewayView({
             <span>IPv4</span>
             <span>Link</span>
             <span>Speed</span>
+            <span>Driver</span>
+            <span>Manager</span>
+            <span>LAN Candidate</span>
             <span>IPv6</span>
             <span>MAC</span>
           </div>
@@ -712,6 +735,9 @@ function GatewayView({
                 <span>{iface.ipv4_addresses?.join(", ") || "None"}</span>
                 <span>{iface.oper_state || "Unknown"}{iface.carrier ? ` / carrier ${iface.carrier}` : ""}</span>
                 <span>{iface.speed_mbps ? `${iface.speed_mbps} Mb/s` : "Unknown"}</span>
+                <span>{iface.driver || "Unknown"}</span>
+                <span>{iface.managed_by ? `${iface.managed_by}${iface.connection_name ? ` / ${iface.connection_name}` : ""}` : "Unknown"}</span>
+                <span title={iface.candidate_reason ?? ""}>{iface.candidate_lan ? "Yes" : "No"}</span>
                 <span>{iface.ipv6_addresses?.join(", ") || "None"}</span>
                 <span>{iface.hardware_addr || "Unknown"}</span>
               </div>
@@ -870,7 +896,9 @@ function DestinationsView({
                 <ClassBadge value={row.category} />
                 <span>{formatBytes(row.download_bytes)}</span>
                 <span>{formatBytes(row.upload_bytes)}</span>
-                <ClassBadge value={row.confidence} />
+                <span title={row.confidence === "unknown" ? "Unknown: no reliable DNS/SNI/provider evidence was available." : `Confidence: ${row.confidence}. Classification is based on metadata evidence such as DNS or SNI; HTTPS payloads are not decrypted.`}>
+                  <ClassBadge value={row.confidence} />
+                </span>
               </div>
             ))
           )}
@@ -895,9 +923,11 @@ function InvestigationView({
       </SectionTitle>
       <section className="grid compact">
         <MetricCard label="Measured Internet" value={formatBytes(dailyReport.data?.internet_bytes ?? 0)} detail={dailyReport.data?.message ?? dailyReport.data?.date ?? "Today"} tone="accent" />
+        <MetricCard label="Classified" value={formatBytes(dailyReport.data?.classified_bytes ?? 0)} detail={`${Math.round((dailyReport.data?.classification_coverage ?? 0) * 100)}% coverage`} tone="good" />
         <MetricCard label="Free/Night" value={formatBytes(dailyReport.data?.free_night_bytes ?? 0)} detail="Configurable ISP window" tone="good" />
         <MetricCard label="Anytime" value={formatBytes(dailyReport.data?.anytime_bytes ?? 0)} detail="Charged/anytime window" tone="warning" />
         <MetricCard label="Unknown" value={formatBytes(dailyReport.data?.unknown_bytes ?? 0)} detail="Not silently excluded" />
+        <MetricCard label="Top Service" value={dailyReport.data?.top_service ?? "Unavailable"} detail={dailyReport.data?.top_category ?? "No classified rows yet"} />
       </section>
       <section className="panel split">
         <div>

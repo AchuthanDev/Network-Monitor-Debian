@@ -58,6 +58,7 @@ Go is not required on the host for Go tests or Go builds; the Makefile uses a pi
 - [Architecture](docs/architecture.md)
 - [Optional Gateway Architecture](docs/gateway-architecture.md)
 - [Live Gateway Deployment Plan](docs/gateway-live-deployment.md)
+- [Gateway Hardware Readiness](docs/gateway-hardware-readiness.md)
 - [Network Topology](docs/network-topology.md)
 - [Gateway Migration](docs/gateway-migration.md)
 - [Gateway Rollback](docs/gateway-rollback.md)

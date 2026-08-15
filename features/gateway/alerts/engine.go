@@ -15,6 +15,7 @@ const (
 
 type Rule struct {
 	Name           string
+	Metric         string
 	ThresholdBytes uint64
 	Thresholds     []uint64
 	Included       []string
@@ -29,6 +30,8 @@ type Usage struct {
 	TotalBytes    uint64
 	AnytimeBytes  uint64
 	UnknownBytes  uint64
+	BurstBytes10m uint64
+	UploadBytes   uint64
 	CategoryBytes map[string]uint64
 }
 
@@ -97,6 +100,16 @@ func EvaluateAt(rule Rule, usage Usage, _ time.Time) []Alert {
 }
 
 func matchedBytes(rule Rule, usage Usage) uint64 {
+	switch rule.Metric {
+	case "anytime":
+		return usage.AnytimeBytes
+	case "unknown":
+		return usage.UnknownBytes
+	case "burst_10m":
+		return usage.BurstBytes10m
+	case "upload":
+		return usage.UploadBytes
+	}
 	if len(rule.Included) == 0 && len(rule.Excluded) == 0 {
 		if rule.UnknownPolicy == UnknownTrafficInclude {
 			return usage.TotalBytes + usage.UnknownBytes
