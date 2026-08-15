@@ -3,5 +3,6 @@ go 1.23.0
 use (
 	./apps/backend
 	./apps/collector
+	./features/gateway
 	./features/network-usage
 )

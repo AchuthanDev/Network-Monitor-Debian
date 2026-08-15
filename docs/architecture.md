@@ -49,6 +49,8 @@ Network-Monitor-Debian/
 └── .github/
 ```
 
+Gateway expansion is documented separately in [Optional Gateway Architecture](gateway-architecture.md). Gateway mode is optional and must not be enabled unless client traffic genuinely routes through the Debian server.
+
 ## Runtime Diagram
 
 ```mermaid
@@ -105,6 +107,9 @@ Planned endpoints:
 - `GET /api/v1/network/realtime`
 - `GET /api/v1/network/hourly`
 - `GET /api/v1/network/daily`
+- `GET /api/v1/devices`
+- `GET /api/v1/devices/{id}`
+- `GET /api/v1/isp-usage`
 - `GET /api/v1/containers`
 - `GET /api/v1/processes`
 - `GET /api/v1/connections`

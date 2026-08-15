@@ -3,6 +3,8 @@ WORKDIR /src
 ENV GOWORK=off
 COPY go.work ./
 COPY apps/backend ./apps/backend
+COPY features/gateway ./features/gateway
+COPY features/network-usage ./features/network-usage
 RUN cd apps/backend && go test ./...
 RUN cd apps/backend && go build -o /out/network-monitor-api ./cmd/api
 

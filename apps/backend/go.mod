@@ -4,6 +4,8 @@ go 1.23.0
 
 toolchain go1.23.10
 
+require github.com/AchuthanDev/Network-Monitor-Debian/features/gateway v0.0.0
+
 require github.com/jackc/pgx/v5 v5.7.6
 
 require (
@@ -14,3 +16,5 @@ require (
 	golang.org/x/sync v0.13.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
 )
+
+replace github.com/AchuthanDev/Network-Monitor-Debian/features/gateway => ../../features/gateway

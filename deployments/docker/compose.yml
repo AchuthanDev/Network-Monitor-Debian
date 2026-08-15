@@ -95,6 +95,26 @@ services:
     networks:
       - network-monitor-public
 
+  collector-test:
+    image: golang:1.23.10-alpine
+    profiles:
+      - test
+    working_dir: /src
+    environment:
+      GOCACHE: /tmp/go-cache
+    volumes:
+      - ../..:/src:ro
+    command: sh scripts/test-go.sh
+
+  gateway-sim-test:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/gateway-sim.Dockerfile
+    profiles:
+      - test
+    privileged: true
+    network_mode: none
+
 volumes:
   network-monitor-db:
 
