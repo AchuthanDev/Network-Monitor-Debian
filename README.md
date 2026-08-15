@@ -51,12 +51,13 @@ make docker-up
 make docker-down
 ```
 
-Go is required for collector/API tests. Node.js and npm are required for frontend checks.
+Go is not required on the host for Go tests or Go builds; the Makefile uses a pinned `golang:1.23.10-alpine` container. Node.js and npm are required for frontend checks.
 
 ## Documentation
 
 - [Architecture](docs/architecture.md)
 - [Optional Gateway Architecture](docs/gateway-architecture.md)
+- [Live Gateway Deployment Plan](docs/gateway-live-deployment.md)
 - [Network Topology](docs/network-topology.md)
 - [Gateway Migration](docs/gateway-migration.md)
 - [Gateway Rollback](docs/gateway-rollback.md)
