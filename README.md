@@ -56,6 +56,7 @@ Go is required for collector/API tests. Node.js and npm are required for fronten
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [Optional Gateway Architecture](docs/gateway-architecture.md)
 - [Network Accounting](docs/network-accounting.md)
 - [Docker Attribution](docs/docker-attribution.md)
 - [Security](docs/security.md)

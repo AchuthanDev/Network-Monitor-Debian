@@ -20,6 +20,19 @@ Required before Phase 2 is considered complete:
 - Host-network container to public endpoint: attributed by PID/cgroup, counted once.
 - Loopback transfer: loopback increases, Internet remains zero.
 
+Gateway model tests live in `features/gateway`. They define behavior before gateway mode can be implemented against live networking:
+
+- Client to LAN destination: Internet count remains zero.
+- Client to public Internet: counted for the MAC-backed device.
+- Two clients using Internet: counted separately.
+- Same forwarded flow observed at multiple hooks: counted only once.
+- Post-NAT observation: rejected for authoritative per-device accounting.
+- Night/free window: `06:59` is free and `07:00` is anytime for the configured timezone.
+- DHCP IP change: history follows MAC-backed identity.
+- IP-only device identity: marked ephemeral.
+- Docker bridge traffic: not attributed to a LAN device.
+- Server host traffic: remains `host/server`.
+
 Current host inspection on 2026-08-14 showed `net.netfilter.nf_conntrack_acct=0`. In that state Phase 2 must report accounting unavailable. Enabling conntrack byte accounting is an explicit deployment action, not something the application silently changes.
 
 Validation after enabling `nf_conntrack_acct=1` showed that conntrack snapshot polling undercounted controlled downloads. Phase 2 now uses nftables counters for authoritative aggregate totals and keeps conntrack as a fallback/diagnostic path.
