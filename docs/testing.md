@@ -52,10 +52,18 @@ Gateway model tests live in `features/gateway`. They define behavior before gate
 Gateway namespace integration tests cover:
 
 - Isolated client/gateway/WAN namespace topology.
-- nftables pre-NAT forward accounting.
+- nftables pre-NAT forward accounting rendered by the production dry-run generator.
 - NAT masquerade after accounting.
 - Two separately attributed clients.
 - Double-count prevention by checking measured bytes are not multiplied by multiple hooks.
+
+Larger controlled gateway simulation:
+
+```bash
+make gateway-sim-stress-test
+```
+
+The stress target transfers 100 MB for client A and 200 MB for client B, then reports measured bytes and measured-over-payload percentage. The percentage includes HTTP/TCP/IP overhead and client upload acknowledgements.
 
 Current host inspection on 2026-08-14 showed `net.netfilter.nf_conntrack_acct=0`. In that state Phase 2 must report accounting unavailable. Enabling conntrack byte accounting is an explicit deployment action, not something the application silently changes.
 

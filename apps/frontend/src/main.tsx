@@ -78,6 +78,9 @@ type GatewayInterface = {
   hardware_addr: string;
   ipv4_addresses?: string[];
   ipv6_addresses?: string[];
+  oper_state?: string;
+  carrier?: string;
+  speed_mbps?: number;
 };
 
 type GatewayDiscoveryResponse = {
@@ -602,6 +605,8 @@ function GatewayView({
           <div className="table-row gateway-interface table-head">
             <span>Interface</span>
             <span>IPv4</span>
+            <span>Link</span>
+            <span>Speed</span>
             <span>IPv6</span>
             <span>MAC</span>
           </div>
@@ -612,6 +617,8 @@ function GatewayView({
               <div className="table-row gateway-interface" key={iface.name}>
                 <span>{iface.name}</span>
                 <span>{iface.ipv4_addresses?.join(", ") || "None"}</span>
+                <span>{iface.oper_state || "Unknown"}{iface.carrier ? ` / carrier ${iface.carrier}` : ""}</span>
+                <span>{iface.speed_mbps ? `${iface.speed_mbps} Mb/s` : "Unknown"}</span>
                 <span>{iface.ipv6_addresses?.join(", ") || "None"}</span>
                 <span>{iface.hardware_addr || "Unknown"}</span>
               </div>

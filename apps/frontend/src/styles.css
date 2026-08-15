@@ -252,7 +252,8 @@ h1 {
 }
 
 .table-row.gateway-interface {
-  grid-template-columns: minmax(120px, 0.8fr) minmax(200px, 1.4fr) minmax(200px, 1.4fr) minmax(150px, 1fr);
+  grid-template-columns: minmax(110px, 0.8fr) minmax(190px, 1.4fr) minmax(130px, 0.9fr) minmax(90px, 0.7fr) minmax(190px, 1.4fr) minmax(140px, 1fr);
+  min-width: 900px;
 }
 
 .table-head {

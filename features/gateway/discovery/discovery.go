@@ -35,6 +35,9 @@ type Interface struct {
 	Flags         []string `json:"flags"`
 	IPv4Addresses []string `json:"ipv4_addresses"`
 	IPv6Addresses []string `json:"ipv6_addresses"`
+	OperState     string   `json:"oper_state,omitempty"`
+	Carrier       string   `json:"carrier,omitempty"`
+	SpeedMbps     int      `json:"speed_mbps,omitempty"`
 }
 
 type Route struct {
@@ -113,6 +116,9 @@ func discoverInterfaces(report *Report) []Interface {
 			Name:         item.Name,
 			HardwareAddr: item.HardwareAddr.String(),
 			Flags:        strings.Split(item.Flags.String(), "|"),
+			OperState:    readTrimmed("/sys/class/net/" + item.Name + "/operstate"),
+			Carrier:      readTrimmed("/sys/class/net/" + item.Name + "/carrier"),
+			SpeedMbps:    readInt("/sys/class/net/" + item.Name + "/speed"),
 		}
 		for _, address := range addresses {
 			prefix, err := netip.ParsePrefix(address.String())
@@ -325,6 +331,26 @@ func readBoolFile(path string) (bool, error) {
 		return false, err
 	}
 	return strings.TrimSpace(string(raw)) == "1", nil
+}
+
+func readTrimmed(path string) string {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(raw))
+}
+
+func readInt(path string) int {
+	value := readTrimmed(path)
+	if value == "" {
+		return 0
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 {
+		return 0
+	}
+	return parsed
 }
 
 func interfaceState(flags []string) string {

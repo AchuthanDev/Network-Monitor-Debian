@@ -3,6 +3,9 @@ set -eu
 
 SIM_A_MB="${SIM_A_MB:-4}"
 SIM_B_MB="${SIM_B_MB:-6}"
+LAN_CIDR="10.0.50.0/24"
+LAN_IFACE="br-mon"
+WAN_IFACE="veth-gw-wan"
 
 cleanup() {
   if [ "${SERVER_PID:-}" != "" ]; then
@@ -33,50 +36,40 @@ ip link add veth-c2 type veth peer name veth-gw-c2
 ip link set veth-c2 netns nm-c2
 ip link set veth-gw-c2 netns nm-gw
 
-ip link add veth-gw-wan type veth peer name veth-wan
-ip link set veth-gw-wan netns nm-gw
+ip link add "$WAN_IFACE" type veth peer name veth-wan
+ip link set "$WAN_IFACE" netns nm-gw
 ip link set veth-wan netns nm-wan
 
-ip -n nm-c1 addr add 10.0.1.2/24 dev veth-c1
+ip -n nm-c1 addr add 10.0.50.2/24 dev veth-c1
 ip -n nm-c1 link set veth-c1 up
-ip -n nm-c1 route add default via 10.0.1.1
+ip -n nm-c1 route add default via 10.0.50.1
 
-ip -n nm-c2 addr add 10.0.2.2/24 dev veth-c2
+ip -n nm-c2 addr add 10.0.50.3/24 dev veth-c2
 ip -n nm-c2 link set veth-c2 up
-ip -n nm-c2 route add default via 10.0.2.1
+ip -n nm-c2 route add default via 10.0.50.1
 
-ip -n nm-gw addr add 10.0.1.1/24 dev veth-gw-c1
-ip -n nm-gw addr add 10.0.2.1/24 dev veth-gw-c2
-ip -n nm-gw addr add 198.51.100.1/24 dev veth-gw-wan
+ip -n nm-gw link add "$LAN_IFACE" type bridge
+ip -n nm-gw link set "$LAN_IFACE" up
+ip -n nm-gw link set veth-gw-c1 master "$LAN_IFACE"
+ip -n nm-gw link set veth-gw-c2 master "$LAN_IFACE"
+ip -n nm-gw addr add 10.0.50.1/24 dev "$LAN_IFACE"
+ip -n nm-gw addr add 198.51.100.1/24 dev "$WAN_IFACE"
 ip -n nm-gw link set veth-gw-c1 up
 ip -n nm-gw link set veth-gw-c2 up
-ip -n nm-gw link set veth-gw-wan up
+ip -n nm-gw link set "$WAN_IFACE" up
 ip netns exec nm-gw sh -c 'echo 1 > /proc/sys/net/ipv4/ip_forward'
 
 ip -n nm-wan addr add 198.51.100.2/24 dev veth-wan
 ip -n nm-wan link set veth-wan up
 
-ip netns exec nm-gw nft -f - <<'NFT'
-table ip nmtest {
-  counter client_a_internet {}
-  counter client_b_internet {}
-  counter client_a_lan {}
-
-  chain forward_prenat {
-    type filter hook forward priority -150; policy accept;
-    ip saddr 10.0.1.2 ip daddr 198.51.100.2 counter name client_a_internet
-    ip daddr 10.0.1.2 ip saddr 198.51.100.2 counter name client_a_internet
-    ip saddr 10.0.2.2 ip daddr 198.51.100.2 counter name client_b_internet
-    ip daddr 10.0.2.2 ip saddr 198.51.100.2 counter name client_b_internet
-    ip saddr 10.0.1.2 ip daddr 10.0.1.0/24 counter name client_a_lan
-  }
-
-  chain wan_nat {
-    type nat hook postrouting priority srcnat; policy accept;
-    oifname "veth-gw-wan" ip saddr { 10.0.1.0/24, 10.0.2.0/24 } masquerade
-  }
-}
-NFT
+go run ./apps/gatewayctl/cmd/network-monitor-gateway nftables \
+  --wan "$WAN_IFACE" \
+  --lan "$LAN_IFACE" \
+  --lan-cidr "$LAN_CIDR" \
+  --client-counter client_a=10.0.50.2 \
+  --client-counter client_b=10.0.50.3 \
+  >/tmp/network-monitor-gateway.nft
+ip netns exec nm-gw nft -f /tmp/network-monitor-gateway.nft
 
 ip netns exec nm-wan sh -c "mkdir -p /tmp/www && dd if=/dev/zero of=/tmp/www/body.bin bs=1M count=$SIM_A_MB >/dev/null 2>&1 && printf 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nConnection: close\r\n\r\n' $((SIM_A_MB * 1024 * 1024)) > /tmp/www/response.http && cat /tmp/www/body.bin >> /tmp/www/response.http"
 ip netns exec nm-wan socat TCP-LISTEN:8080,bind=198.51.100.2,reuseaddr,fork SYSTEM:'cat /tmp/www/response.http' >/tmp/nm-socat.log 2>&1 &
@@ -88,7 +81,7 @@ ip netns exec nm-wan ss -ltn | grep -q ':8080' || {
 }
 
 counter_bytes() {
-  ip netns exec nm-gw nft list counter ip nmtest "$1" | awk '{ for (i = 1; i <= NF; i++) if ($i == "bytes") print $(i + 1) }'
+  ip netns exec nm-gw nft list counter inet network_monitor_gateway "$1" | awk '{ for (i = 1; i <= NF; i++) if ($i == "bytes") print $(i + 1) }'
 }
 
 assert_zero() {
@@ -120,19 +113,25 @@ assert_not_double_counted() {
   fi
 }
 
-lan_before="$(counter_bytes client_a_lan)"
+lan_before="$(counter_bytes client_lan_upload)"
 assert_zero "$lan_before" "LAN-to-local before Internet tests"
 
 ip netns exec nm-c1 curl -fsS http://198.51.100.2:8080/blob.bin >/dev/null
 ip netns exec nm-c2 curl -fsS http://198.51.100.2:8080/blob.bin >/dev/null
 ip netns exec nm-c2 curl -fsS http://198.51.100.2:8080/blob.bin >/dev/null
 
-client_a="$(counter_bytes client_a_internet)"
-client_b="$(counter_bytes client_b_internet)"
-lan_after="$(counter_bytes client_a_lan)"
+client_a_up="$(counter_bytes client_a_internet_upload)"
+client_a_down="$(counter_bytes client_a_internet_download)"
+client_b_up="$(counter_bytes client_b_internet_upload)"
+client_b_down="$(counter_bytes client_b_internet_download)"
+client_a=$((client_a_up + client_a_down))
+client_b=$((client_b_up + client_b_down))
+lan_after="$(counter_bytes client_lan_upload)"
 
-assert_gt_zero "$client_a" "client A Internet"
-assert_gt_zero "$client_b" "client B Internet"
+assert_gt_zero "$client_a_down" "client A download"
+assert_gt_zero "$client_a_up" "client A upload"
+assert_gt_zero "$client_b_down" "client B download"
+assert_gt_zero "$client_b_up" "client B upload"
 assert_zero "$lan_after" "LAN/client-to-local Internet accounting"
 
 if [ "$client_a" -eq "$client_b" ]; then
@@ -145,7 +144,21 @@ payload_b=$((SIM_A_MB * 2 * 1024 * 1024))
 assert_not_double_counted "$client_a" "$payload_a" "client A"
 assert_not_double_counted "$client_b" "$payload_b" "client B"
 
+percent_over_payload() {
+  measured="$1"
+  payload="$2"
+  awk "BEGIN { printf \"%.3f\", (($measured - $payload) / $payload) * 100 }"
+}
+
 echo "PASS: isolated gateway simulation"
 echo "client_a_internet_bytes=$client_a"
+echo "client_a_download_bytes=$client_a_down"
+echo "client_a_upload_bytes=$client_a_up"
+echo "client_a_payload_bytes=$payload_a"
+echo "client_a_over_payload_percent=$(percent_over_payload "$client_a" "$payload_a")"
 echo "client_b_internet_bytes=$client_b"
+echo "client_b_download_bytes=$client_b_down"
+echo "client_b_upload_bytes=$client_b_up"
+echo "client_b_payload_bytes=$payload_b"
+echo "client_b_over_payload_percent=$(percent_over_payload "$client_b" "$payload_b")"
 echo "client_a_lan_bytes=$lan_after"
