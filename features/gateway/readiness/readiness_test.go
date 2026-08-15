@@ -52,6 +52,64 @@ func TestReadinessWarnsForHundredMbpsFullDuplexLAN(t *testing.T) {
 	assertCheck(t, ready, "lan_full_duplex", StatusPass)
 }
 
+func TestReadinessAllowsConfirmedWiFiAPAsLANWithWarnings(t *testing.T) {
+	cfg := gatewayconfig.Default()
+	cfg.Gateway.WANInterface = "enp0s31f6"
+	cfg.Gateway.LANInterface = "wlp1s0"
+
+	report := discovery.Report{
+		WANInterface: "enp0s31f6",
+		Interfaces: []discovery.Interface{
+			{Name: "enp0s31f6", IPv4Addresses: []string{"192.168.1.10/24"}, HasDefaultRoute: true},
+			{
+				Name:            "wlp1s0",
+				Kind:            "wifi",
+				OperState:       "up",
+				Carrier:         "1",
+				IPv4Addresses:   []string{"192.168.1.6/24"},
+				HasDefaultRoute: true,
+				CandidateLAN:    true,
+				CandidateReason: "Wi-Fi AP capable",
+				WiFi:            &discovery.WiFi{Phy: "phy0", CurrentMode: "managed", APModeSupported: true},
+			},
+		},
+		Nftables:         discovery.NftablesState{Available: true},
+		IPForwarding:     discovery.ForwardingState{IPv4Enabled: true},
+		ToolAvailability: map[string]bool{"docker": true},
+		Routes:           []discovery.Route{{Destination: "192.168.1.0/24", Interface: "enp0s31f6"}},
+	}
+
+	ready := Evaluate(cfg, report)
+	assertCheck(t, ready, "wifi_ap_capability", StatusPass)
+	assertCheck(t, ready, "lan_no_default_route", StatusWarning)
+	assertCheck(t, ready, "wifi_current_mode", StatusWarning)
+	assertCheck(t, ready, "lan_candidate", StatusPass)
+}
+
+func TestReadinessFailsWiFiLANWithoutAPSupport(t *testing.T) {
+	cfg := gatewayconfig.Default()
+	cfg.Gateway.WANInterface = "enp0s31f6"
+	cfg.Gateway.LANInterface = "wlp1s0"
+
+	report := discovery.Report{
+		WANInterface: "enp0s31f6",
+		Interfaces: []discovery.Interface{
+			{Name: "enp0s31f6", IPv4Addresses: []string{"192.168.1.10/24"}, HasDefaultRoute: true},
+			{Name: "wlp1s0", Kind: "wifi", OperState: "up", Carrier: "1", WiFi: &discovery.WiFi{Phy: "phy0", CurrentMode: "managed"}},
+		},
+		Nftables:         discovery.NftablesState{Available: true},
+		IPForwarding:     discovery.ForwardingState{IPv4Enabled: true},
+		ToolAvailability: map[string]bool{"docker": true},
+		Routes:           []discovery.Route{{Destination: "192.168.1.0/24", Interface: "enp0s31f6"}},
+	}
+
+	ready := Evaluate(cfg, report)
+	assertCheck(t, ready, "wifi_ap_capability", StatusFail)
+	if ready.Ready {
+		t.Fatalf("readiness must fail when selected Wi-Fi LAN lacks confirmed AP support")
+	}
+}
+
 func TestReadinessPreservesSSHManagementOnWAN(t *testing.T) {
 	cfg := gatewayconfig.Default()
 	cfg.Gateway.WANInterface = "wan0"

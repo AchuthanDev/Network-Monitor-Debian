@@ -54,10 +54,10 @@ The UI and API must expose the active mode and show reduced accuracy when gatewa
      192.168.50.21  192.168.50.22  192.168.50.30
 ```
 
-Recommended production setup uses two interfaces:
+Gateway setup uses two distinct interface roles:
 
 - WAN-side interface connected to the existing HG7 LAN.
-- LAN-side interface connected to the monitored client network.
+- LAN-side interface connected to the monitored client network. This may be a dedicated Ethernet adapter or a confirmed AP-capable Wi-Fi interface.
 
 Current read-only inspection on 2026-08-15:
 
@@ -67,9 +67,9 @@ Current read-only inspection on 2026-08-15:
 - IPv4 forwarding: enabled.
 - IPv6 forwarding: disabled.
 - Docker bridges: `172.17.0.0/16` through `172.24.0.0/16` are present.
-- Wi-Fi AP mode support was not verified because `iw` is not installed in this environment.
+- `wlp1s0` Intel 8260 AP mode support is confirmed by `iw list`.
 
-Recommendation: use `enp0s31f6` as WAN-side only if SSH reachability and routing are preserved, and prefer a USB Gigabit Ethernet adapter for the monitored LAN side. Do not assume `wlp1s0` can run AP mode until `iw list` confirms AP support and coexistence with current Wi-Fi use is acceptable.
+Recommendation: use `enp0s31f6` as WAN-side only if SSH reachability and routing are preserved. `wlp1s0` is supported as a monitored Wi-Fi AP test topology after the current managed-client Wi-Fi connection is intentionally released during an approved activation phase.
 
 ## Required Preflight Checks
 

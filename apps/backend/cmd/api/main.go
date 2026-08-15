@@ -293,24 +293,24 @@ func writeGatewayWizard(w http.ResponseWriter, r *http.Request, cfg gatewayconfi
 	}
 	response := wizardResponse{
 		Status:      "ok",
-		ApplyReady:  ready.Ready && lanSelected,
+		ApplyReady:  false,
 		Config:      cfg,
 		Readiness:   ready,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		Steps: []wizardStep{
 			{Step: 1, Name: "WAN interface", Status: statusFor(wan != ""), Detail: valueOr(wan, "Auto-detect unavailable")},
-			{Step: 2, Name: "Dedicated LAN interface", Status: statusFor(lanSelected), Detail: valueOr(cfg.Gateway.LANInterface, "No suitable dedicated interface detected"), Disabled: !lanSelected},
+			{Step: 2, Name: "Monitored LAN interface", Status: statusFor(lanSelected), Detail: valueOr(cfg.Gateway.LANInterface, "No Ethernet or AP-capable Wi-Fi LAN interface selected"), Disabled: !lanSelected},
 			{Step: 3, Name: "LAN addressing", Status: "ready", Detail: cfg.Gateway.GatewayIP + " / " + cfg.Gateway.LANCIDR},
 			{Step: 4, Name: "DHCP", Status: statusFor(cfg.Gateway.DHCP.Enabled), Detail: cfg.Gateway.DHCP.RangeStart + "-" + cfg.Gateway.DHCP.RangeEnd},
 			{Step: 5, Name: "DNS/Pi-hole", Status: string(cfg.Gateway.DNS.Mode), Detail: "Pi-hole remains the DNS evidence source; no DNS changes are applied here"},
 			{Step: 6, Name: "nftables/NAT/accounting review", Status: "dry_run", Detail: "Generated plan only; no live rules are installed from the dashboard"},
 			{Step: 7, Name: "Connectivity safety check", Status: statusFor(checkStatus(ready, "ssh_management_preserved") == "pass"), Detail: "SSH management must remain on the WAN-side 192.168.1.x path"},
 			{Step: 8, Name: "Rollback safety", Status: statusFor(checkStatus(ready, "rollback_plan_available") == "pass" && checkStatus(ready, "automatic_rollback_ready") == "pass"), Detail: "Future live apply requires a rollback plan and 120-second confirmation timer"},
-			{Step: 9, Name: "Apply", Status: statusFor(ready.Ready && lanSelected), Detail: "Disabled until dedicated LAN interface is selected and all required checks pass", Disabled: !(ready.Ready && lanSelected)},
+			{Step: 9, Name: "Apply", Status: "dry_run", Detail: "Live apply is disabled on this branch; readiness can be reviewed but activation requires explicit approval", Disabled: true},
 		},
 	}
 	if !lanSelected {
-		response.Warnings = append(response.Warnings, "Dedicated LAN interface is not connected or selected")
+		response.Warnings = append(response.Warnings, "Monitored LAN interface is not selected")
 	}
 	writeJSON(w, http.StatusOK, response)
 }

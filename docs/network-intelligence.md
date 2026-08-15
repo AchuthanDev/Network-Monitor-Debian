@@ -174,4 +174,4 @@ iw --version
 iw list
 ```
 
-Do not enable gateway NAT, DHCP, or interface addressing until a dedicated LAN NIC is connected and explicit approval is given.
+Do not enable gateway NAT, DHCP, AP mode, or interface addressing until a monitored LAN interface is selected and explicit approval is given.
