@@ -7,7 +7,7 @@ Rollback must only remove Network Monitor-owned configuration. It must not flush
 Every dry-run/apply plan must include:
 
 ```text
-nft delete table inet network_monitor_gateway
+nft delete table inet network_monitor
 systemctl stop network-monitor-dnsmasq.service
 ip addr del <gateway_ip> dev <lan_interface>
 sysctl -w net.ipv4.ip_forward=<previous-value>
@@ -36,3 +36,18 @@ The real apply command must capture previous values before changing anything.
 - Do not delete non-Network-Monitor nftables tables.
 - Do not stop Pi-hole, Docker, or existing services unless the user explicitly approves.
 - Do not run DHCP on `192.168.1.0/24` while HG7 DHCP is active.
+
+## Automatic Safety Timer
+
+Future live apply must start a rollback timer before changes become permanent:
+
+```text
+apply dry-run reviewed
+  -> apply live changes
+  -> start 120-second timer
+  -> verify management SSH path
+  -> require explicit confirmation
+  -> cancel timer only after confirmation
+```
+
+If confirmation is not received, rollback must remove only project-owned state such as `inet network_monitor`, the project DHCP service, and the monitored-LAN address. Namespace simulation validates this flow without touching the host network.

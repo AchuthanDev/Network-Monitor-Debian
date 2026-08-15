@@ -18,7 +18,7 @@ func TestRenderNftablesUsesProjectOwnedTableAndPreNATAccounting(t *testing.T) {
 	})
 
 	required := []string{
-		"table inet network_monitor_gateway",
+		"table inet network_monitor",
 		"type filter hook forward priority -150",
 		"type nat hook postrouting priority srcnat",
 		"oifname \"wan0\" ip saddr @monitored_lan4 masquerade",

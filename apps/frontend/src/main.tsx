@@ -82,7 +82,9 @@ type GatewayInterface = {
   oper_state?: string;
   carrier?: string;
   speed_mbps?: number;
+  duplex?: string;
   driver?: string;
+  master?: string;
   managed_by?: string;
   connection_name?: string;
   has_default_route?: boolean;
@@ -689,6 +691,8 @@ function GatewayView({
         <MetricCard label="Pi-hole DNS" value={check("pihole_dns_detected")?.status === "pass" ? "Detected" : "Check"} detail={check("pihole_dns_detected")?.reason ?? "Port 53 DNS evidence"} tone={check("pihole_dns_detected")?.status === "pass" ? "good" : "warning"} />
         <MetricCard label="DHCP Conflict" value={check("dhcp_conflict")?.status === "pass" ? "None" : "Warning"} detail={check("dhcp_conflict")?.reason ?? "No DHCP listener detected"} tone={check("dhcp_conflict")?.status === "pass" ? "good" : "warning"} />
         <MetricCard label="Accounting Simulation" value={check("accounting_simulation")?.status === "pass" ? "Passed" : "Unknown"} detail="Namespace generated-rule test" tone={check("accounting_simulation")?.status === "pass" ? "good" : "warning"} />
+        <MetricCard label="Rollback" value={check("rollback_plan_available")?.status === "pass" ? "Ready" : "Check"} detail={check("automatic_rollback_ready")?.reason ?? "Project-owned rollback only"} tone={check("rollback_plan_available")?.status === "pass" ? "good" : "warning"} />
+        <MetricCard label="Hardware Link" value={check("lan_link_speed")?.status === "pass" ? "1 Gbps" : "Missing"} detail={check("lan_full_duplex")?.reason ?? check("lan_link_speed")?.reason ?? "Full-duplex monitored LAN required"} tone={check("lan_link_speed")?.status === "pass" ? "good" : "warning"} />
         <MetricCard label="Ready for Gateway Activation" value={readiness.data?.ready ? "YES" : "NO"} detail={`${passCount} pass / ${warningCount} warning / ${failCount} fail`} tone={readiness.data?.ready ? "good" : "warning"} />
       </section>
 
@@ -733,8 +737,8 @@ function GatewayView({
               <div className="table-row gateway-interface" key={iface.name}>
                 <span>{iface.name}</span>
                 <span>{iface.ipv4_addresses?.join(", ") || "None"}</span>
-                <span>{iface.oper_state || "Unknown"}{iface.carrier ? ` / carrier ${iface.carrier}` : ""}</span>
-                <span>{iface.speed_mbps ? `${iface.speed_mbps} Mb/s` : "Unknown"}</span>
+                <span>{iface.oper_state || "Unknown"}{iface.carrier ? ` / carrier ${iface.carrier}` : ""}{iface.duplex ? ` / ${iface.duplex}` : ""}</span>
+                <span>{iface.speed_mbps ? `${iface.speed_mbps} Mb/s` : "Unknown"}{iface.master ? ` / ${iface.master}` : ""}</span>
                 <span>{iface.driver || "Unknown"}</span>
                 <span>{iface.managed_by ? `${iface.managed_by}${iface.connection_name ? ` / ${iface.connection_name}` : ""}` : "Unknown"}</span>
                 <span title={iface.candidate_reason ?? ""}>{iface.candidate_lan ? "Yes" : "No"}</span>

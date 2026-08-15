@@ -7,8 +7,20 @@ import (
 	gatewayconfig "github.com/AchuthanDev/Network-Monitor-Debian/features/gateway/config"
 )
 
+const NftablesTableName = "network_monitor"
+
 type Plan struct {
 	Mode             string   `json:"mode"`
+	GatewayMode      string   `json:"gateway_mode"`
+	WAN              string   `json:"wan"`
+	LAN              string   `json:"lan"`
+	LANIP            string   `json:"lan_ip"`
+	DHCP             string   `json:"dhcp"`
+	DNS              string   `json:"dns"`
+	NAT              string   `json:"nat"`
+	Accounting       string   `json:"accounting"`
+	SSHManagement    string   `json:"ssh_management"`
+	Safety           string   `json:"safety"`
 	WouldChange      []string `json:"would_change"`
 	NftablesRuleset  string   `json:"nftables_ruleset"`
 	DnsmasqConfig    string   `json:"dnsmasq_config,omitempty"`
@@ -17,14 +29,30 @@ type Plan struct {
 }
 
 func BuildDryRun(cfg gatewayconfig.Config) Plan {
-	result := Plan{Mode: string(cfg.Mode)}
+	result := Plan{
+		Mode:          string(cfg.Mode),
+		GatewayMode:   string(cfg.Mode),
+		WAN:           cfg.Gateway.WANInterface,
+		LAN:           cfg.Gateway.LANInterface,
+		LANIP:         gatewayAddressWithPrefix(cfg),
+		DHCP:          fmt.Sprintf("%s-%s on %s", cfg.Gateway.DHCP.RangeStart, cfg.Gateway.DHCP.RangeEnd, cfg.Gateway.LANInterface),
+		DNS:           string(cfg.Gateway.DNS.Mode),
+		NAT:           fmt.Sprintf("%s -> %s", cfg.Gateway.LANCIDR, cfg.Gateway.WANInterface),
+		Accounting:    "pre-NAT FORWARD hook in inet " + NftablesTableName,
+		SSHManagement: "preserved through existing WAN/management interface; no SSH firewall changes are planned",
+		Safety:        "live apply requires explicit approval plus a 120-second rollback confirmation timer",
+	}
 	if cfg.Mode != gatewayconfig.ModeGateway {
 		result.Warnings = append(result.Warnings, "Gateway mode is not enabled; this is a planning preview only")
 	}
 	result.WouldChange = append(result.WouldChange,
 		"enable IPv4 forwarding with sysctl net.ipv4.ip_forward=1",
 		fmt.Sprintf("assign %s to LAN interface %s", cfg.Gateway.GatewayIP, cfg.Gateway.LANInterface),
-		"create isolated nftables table inet network_monitor_gateway",
+		"create isolated nftables table inet "+NftablesTableName,
+		fmt.Sprintf("masquerade monitored LAN %s to WAN interface %s", cfg.Gateway.LANCIDR, cfg.Gateway.WANInterface),
+		"account client upload/download once at the pre-NAT forward hook",
+		"preserve SSH management on the existing WAN/management interface",
+		"start a 120-second rollback timer before any future live apply can be confirmed",
 	)
 	if cfg.Gateway.DHCP.Enabled {
 		result.WouldChange = append(result.WouldChange, "write dnsmasq DHCP configuration for monitored LAN only")
@@ -32,7 +60,7 @@ func BuildDryRun(cfg gatewayconfig.Config) Plan {
 	result.NftablesRuleset = RenderNftables(cfg)
 	result.DnsmasqConfig = RenderDnsmasq(cfg)
 	result.RollbackCommands = []string{
-		"nft delete table inet network_monitor_gateway",
+		"nft delete table inet " + NftablesTableName,
 		"systemctl stop network-monitor-dnsmasq.service",
 		fmt.Sprintf("ip addr del %s dev %s", gatewayAddressWithPrefix(cfg), cfg.Gateway.LANInterface),
 		"sysctl -w net.ipv4.ip_forward=<previous-value>",
@@ -74,7 +102,7 @@ func RenderNftablesWithOptions(cfg gatewayconfig.Config, opts NftablesOptions) s
 		clientRules.WriteString(fmt.Sprintf("    iifname \"%s\" oifname \"%s\" ip daddr %s ip saddr != @monitored_lan4 counter name %s_internet_download\n", cfg.Gateway.WANInterface, cfg.Gateway.LANInterface, client.IPv4, name))
 	}
 
-	return fmt.Sprintf(`table inet network_monitor_gateway {
+	return fmt.Sprintf(`table inet %s {
   set monitored_lan4 {
     type ipv4_addr
     flags interval
@@ -106,7 +134,7 @@ func RenderNftablesWithOptions(cfg gatewayconfig.Config, opts NftablesOptions) s
     oifname "%s" ip saddr @monitored_lan4 masquerade
   }
 }
-`, cfg.Gateway.LANCIDR, clientCounters.String(), clientRules.String(), cfg.Gateway.LANInterface, cfg.Gateway.WANInterface, cfg.Gateway.WANInterface, cfg.Gateway.LANInterface, cfg.Gateway.LANInterface, cfg.Gateway.LANInterface, cfg.Gateway.LANInterface, cfg.Gateway.WANInterface, cfg.Gateway.WANInterface)
+`, NftablesTableName, cfg.Gateway.LANCIDR, clientCounters.String(), clientRules.String(), cfg.Gateway.LANInterface, cfg.Gateway.WANInterface, cfg.Gateway.WANInterface, cfg.Gateway.LANInterface, cfg.Gateway.LANInterface, cfg.Gateway.LANInterface, cfg.Gateway.LANInterface, cfg.Gateway.WANInterface, cfg.Gateway.WANInterface)
 }
 
 func RenderDnsmasq(cfg gatewayconfig.Config) string {
