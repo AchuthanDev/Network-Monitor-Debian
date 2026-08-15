@@ -256,6 +256,11 @@ h1 {
   min-width: 900px;
 }
 
+.table-row.destination-row {
+  grid-template-columns: minmax(180px, 1.4fr) minmax(120px, 1fr) minmax(130px, 1fr) minmax(110px, 0.8fr) minmax(110px, 0.8fr) minmax(100px, 0.8fr);
+  min-width: 860px;
+}
+
 .table-head {
   border-top: 0;
   color: #99a7b8;
@@ -342,6 +347,11 @@ h1 {
   padding: 10px 12px;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.refresh:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .refresh:hover {

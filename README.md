@@ -63,6 +63,7 @@ Go is not required on the host for Go tests or Go builds; the Makefile uses a pi
 - [Gateway Rollback](docs/gateway-rollback.md)
 - [Device Accounting](docs/device-accounting.md)
 - [Network Accounting](docs/network-accounting.md)
+- [Network Intelligence](docs/network-intelligence.md)
 - [Docker Attribution](docs/docker-attribution.md)
 - [Security](docs/security.md)
 - [Deployment](docs/deployment.md)

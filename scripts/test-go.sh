@@ -3,6 +3,7 @@ set -eu
 
 for module in \
   features/network-usage \
+  features/traffic-classification \
   features/gateway \
   apps/collector \
   apps/backend \

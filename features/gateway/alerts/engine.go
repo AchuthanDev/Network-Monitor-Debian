@@ -1,6 +1,10 @@
 package alerts
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 type UnknownTrafficPolicy string
 
@@ -12,9 +16,11 @@ const (
 type Rule struct {
 	Name           string
 	ThresholdBytes uint64
+	Thresholds     []uint64
 	Included       []string
 	Excluded       []string
 	UnknownPolicy  UnknownTrafficPolicy
+	Cooldown       time.Duration
 }
 
 type Usage struct {
@@ -31,23 +37,63 @@ type Alert struct {
 	DeviceID string `json:"device_id"`
 	Message  string `json:"message"`
 	Bytes    uint64 `json:"bytes"`
+	Tier     uint64 `json:"tier_bytes"`
 }
 
 func Evaluate(rule Rule, usage Usage) []Alert {
-	bytes := matchedBytes(rule, usage)
-	if bytes <= rule.ThresholdBytes {
+	return EvaluateAt(rule, usage, time.Now())
+}
+
+type Deduplicator struct {
+	sent map[string]time.Time
+}
+
+func NewDeduplicator() *Deduplicator {
+	return &Deduplicator{sent: map[string]time.Time{}}
+}
+
+func (d *Deduplicator) Evaluate(rule Rule, usage Usage, now time.Time) []Alert {
+	alerts := EvaluateAt(rule, usage, now)
+	if len(alerts) == 0 {
 		return nil
+	}
+	filtered := alerts[:0]
+	for _, alert := range alerts {
+		key := dedupeKey(alert)
+		previous, ok := d.sent[key]
+		if ok && rule.Cooldown > 0 && now.Sub(previous) < rule.Cooldown {
+			continue
+		}
+		d.sent[key] = now
+		filtered = append(filtered, alert)
+	}
+	return filtered
+}
+
+func EvaluateAt(rule Rule, usage Usage, _ time.Time) []Alert {
+	bytes := matchedBytes(rule, usage)
+	thresholds := rule.Thresholds
+	if len(thresholds) == 0 {
+		thresholds = []uint64{rule.ThresholdBytes}
 	}
 	name := usage.DeviceName
 	if name == "" {
 		name = usage.DeviceID
 	}
-	return []Alert{{
-		RuleName: rule.Name,
-		DeviceID: usage.DeviceID,
-		Message:  name + " exceeded " + rule.Name,
-		Bytes:    bytes,
-	}}
+	var alerts []Alert
+	for _, threshold := range thresholds {
+		if threshold == 0 || bytes <= threshold {
+			continue
+		}
+		alerts = append(alerts, Alert{
+			RuleName: rule.Name,
+			DeviceID: usage.DeviceID,
+			Message:  fmt.Sprintf("%s exceeded %s at %d bytes", name, rule.Name, threshold),
+			Bytes:    bytes,
+			Tier:     threshold,
+		})
+	}
+	return alerts
 }
 
 func matchedBytes(rule Rule, usage Usage) uint64 {
@@ -71,6 +117,10 @@ func matchedBytes(rule Rule, usage Usage) uint64 {
 		total += usage.UnknownBytes
 	}
 	return total
+}
+
+func dedupeKey(alert Alert) string {
+	return fmt.Sprintf("%s|%s|%d", alert.RuleName, alert.DeviceID, alert.Tier)
 }
 
 func contains(values []string, needle string) bool {

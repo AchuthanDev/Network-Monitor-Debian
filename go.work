@@ -6,4 +6,5 @@ use (
 	./apps/gatewayctl
 	./features/gateway
 	./features/network-usage
+	./features/traffic-classification
 )

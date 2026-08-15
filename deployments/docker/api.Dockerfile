@@ -5,6 +5,7 @@ COPY go.work ./
 COPY apps/backend ./apps/backend
 COPY features/gateway ./features/gateway
 COPY features/network-usage ./features/network-usage
+COPY features/traffic-classification ./features/traffic-classification
 RUN cd apps/backend && go test ./...
 RUN cd apps/backend && go build -o /out/network-monitor-api ./cmd/api
 
