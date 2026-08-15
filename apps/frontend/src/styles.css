@@ -246,8 +246,13 @@ h1 {
 }
 
 .table-row.container-row,
-.table-row.process-row {
+.table-row.process-row,
+.table-row.device-row {
   grid-template-columns: minmax(180px, 1.2fr) minmax(140px, 1fr) minmax(120px, 1fr) minmax(120px, 1fr);
+}
+
+.table-row.gateway-interface {
+  grid-template-columns: minmax(120px, 0.8fr) minmax(200px, 1.4fr) minmax(200px, 1.4fr) minmax(150px, 1fr);
 }
 
 .table-head {
@@ -456,6 +461,15 @@ h1 {
 }
 
 select {
+  min-width: 180px;
+  border: 1px solid rgba(207, 216, 226, 0.22);
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #151a22;
+  color: #edf2f7;
+}
+
+.date-input {
   min-width: 180px;
   border: 1px solid rgba(207, 216, 226, 0.22);
   border-radius: 8px;

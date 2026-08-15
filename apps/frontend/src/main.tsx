@@ -17,10 +17,12 @@ import {
   Network,
   PlugZap,
   RefreshCw,
+  Router,
   Server,
   Settings,
   ShieldAlert,
   SlidersHorizontal,
+  Smartphone,
   Wifi,
 } from "lucide-react";
 import { formatBytes, formatDateTime } from "./lib/format";
@@ -71,6 +73,83 @@ type HourlyResponse = {
   data?: HourlyBucket[];
 };
 
+type GatewayInterface = {
+  name: string;
+  hardware_addr: string;
+  ipv4_addresses?: string[];
+  ipv6_addresses?: string[];
+};
+
+type GatewayDiscoveryResponse = {
+  status: string;
+  mode: string;
+  config: {
+    mode: string;
+    timezone: string;
+    gateway: {
+      wan_interface: string;
+      lan_interface: string;
+      lan_cidr: string;
+      gateway_ip: string;
+    };
+  };
+  discovery: {
+    wan_interface: string;
+    default_route?: {
+      gateway?: string;
+      interface?: string;
+    };
+    interfaces?: GatewayInterface[];
+    docker_bridges?: Array<{ name: string; cidrs?: string[]; state: string }>;
+    dhcp_listeners?: unknown[];
+    dns_listeners?: unknown[];
+    ip_forwarding?: {
+      ipv4_enabled: boolean;
+      ipv6_enabled: boolean;
+      error?: string;
+    };
+    warnings?: string[];
+  };
+};
+
+type GatewayReadinessResponse = {
+  ready: boolean;
+  mode: string;
+  checks: Array<{
+    name: string;
+    status: "pass" | "warning" | "fail";
+    reason?: string;
+  }>;
+};
+
+type DevicesResponse = {
+  status: string;
+  mode: string;
+  message: string;
+  data: unknown[];
+};
+
+type ISPUsageResponse = {
+  status: string;
+  mode: string;
+  scope: string;
+  window: {
+    timezone: string;
+    free_start: string;
+    free_end: string;
+  };
+  free_night_bytes: number;
+  anytime_bytes: number;
+  total_bytes: number;
+  hourly?: Array<{
+    bucket_start: string;
+    period: string;
+    bytes: number;
+  }>;
+  generated_at: string;
+  message?: string;
+};
+
 type EndpointState<T> = {
   data: T | null;
   error: string | null;
@@ -80,6 +159,9 @@ type EndpointState<T> = {
 type SectionId =
   | "overview"
   | "network"
+  | "gateway"
+  | "devices"
+  | "isp"
   | "containers"
   | "processes"
   | "connections"
@@ -108,6 +190,9 @@ const emptyTotals: UsageTotals = {
 const sections: Array<{ id: SectionId; label: string; icon: React.ElementType }> = [
   { id: "overview", label: "Overview", icon: Gauge },
   { id: "network", label: "Network", icon: Network },
+  { id: "gateway", label: "Gateway", icon: Router },
+  { id: "devices", label: "Devices", icon: Smartphone },
+  { id: "isp", label: "ISP Usage", icon: BarChart3 },
   { id: "containers", label: "Containers", icon: Container },
   { id: "processes", label: "Processes", icon: Cpu },
   { id: "connections", label: "Connections", icon: PlugZap },
@@ -249,7 +334,7 @@ async function fetchEndpoint<T>(url: string): Promise<EndpointState<T>> {
     return {
       data,
       error: data.message ?? null,
-      status: data.status === "ok" ? "ok" : "unavailable",
+      status: !data.status || data.status === "ok" ? "ok" : "unavailable",
     };
   } catch (error) {
     return {
@@ -264,17 +349,29 @@ function useDashboardData(refreshMs: number) {
   const [dashboard, setDashboard] = useState<EndpointState<DashboardResponse>>(freshEndpoint);
   const [collector, setCollector] = useState<EndpointState<CollectorResponse>>(freshEndpoint);
   const [hourly, setHourly] = useState<EndpointState<HourlyResponse>>(freshEndpoint);
+  const [gatewayDiscovery, setGatewayDiscovery] = useState<EndpointState<GatewayDiscoveryResponse>>(freshEndpoint);
+  const [gatewayReadiness, setGatewayReadiness] = useState<EndpointState<GatewayReadinessResponse>>(freshEndpoint);
+  const [devices, setDevices] = useState<EndpointState<DevicesResponse>>(freshEndpoint);
+  const [ispUsage, setISPUsage] = useState<EndpointState<ISPUsageResponse>>(freshEndpoint);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
   async function load() {
-    const [dashboardResult, collectorResult, hourlyResult] = await Promise.all([
+    const [dashboardResult, collectorResult, hourlyResult, gatewayDiscoveryResult, gatewayReadinessResult, devicesResult, ispUsageResult] = await Promise.all([
       fetchEndpoint<DashboardResponse>("/api/v1/dashboard"),
       fetchEndpoint<CollectorResponse>("/collector/healthz"),
       fetchEndpoint<HourlyResponse>("/api/v1/network/hourly"),
+      fetchEndpoint<GatewayDiscoveryResponse>("/api/v1/gateway/discovery"),
+      fetchEndpoint<GatewayReadinessResponse>("/api/v1/gateway/readiness"),
+      fetchEndpoint<DevicesResponse>("/api/v1/devices"),
+      fetchEndpoint<ISPUsageResponse>("/api/v1/isp-usage"),
     ]);
     setDashboard(dashboardResult);
     setCollector(collectorResult);
     setHourly(hourlyResult);
+    setGatewayDiscovery(gatewayDiscoveryResult);
+    setGatewayReadiness(gatewayReadinessResult);
+    setDevices(devicesResult);
+    setISPUsage(ispUsageResult);
     setUpdatedAt(new Date());
   }
 
@@ -284,7 +381,7 @@ function useDashboardData(refreshMs: number) {
     return () => window.clearInterval(timer);
   }, [refreshMs]);
 
-  return { dashboard, collector, hourly, updatedAt, load };
+  return { dashboard, collector, hourly, gatewayDiscovery, gatewayReadiness, devices, ispUsage, updatedAt, load };
 }
 
 function buildAlerts(
@@ -447,6 +544,165 @@ function NetworkView({ totals, hourlyBuckets }: { totals: UsageTotals; hourlyBuc
         </div>
       </section>
       <HourlyTrafficPanel buckets={hourlyBuckets.slice(-24).reverse()} />
+    </>
+  );
+}
+
+function GatewayView({
+  discovery,
+  readiness,
+}: {
+  discovery: EndpointState<GatewayDiscoveryResponse>;
+  readiness: EndpointState<GatewayReadinessResponse>;
+}) {
+  const discovered = discovery.data?.discovery;
+  const cfg = discovery.data?.config;
+  const checks = readiness.data?.checks ?? [];
+  const passCount = checks.filter((check) => check.status === "pass").length;
+  const failCount = checks.filter((check) => check.status === "fail").length;
+  const warningCount = checks.filter((check) => check.status === "warning").length;
+
+  return (
+    <>
+      <SectionTitle icon={Router} eyebrow="Gateway" title="Optional monitored LAN gateway">
+        Gateway mode is not applied from the dashboard. This page shows read-only discovery, readiness, and the proposed topology before any network change is approved.
+      </SectionTitle>
+      <section className="grid compact">
+        <MetricCard label="Mode" value={cfg?.mode ?? "server_only"} detail="Current configured monitoring mode" />
+        <MetricCard label="Detected WAN" value={discovered?.wan_interface || "Unavailable"} detail={`Gateway ${discovered?.default_route?.gateway ?? "unknown"}`} />
+        <MetricCard label="Configured LAN" value={cfg?.gateway.lan_interface || "Not selected"} detail={cfg?.gateway.lan_cidr ?? "No monitored LAN active"} tone={cfg?.gateway.lan_interface ? "good" : "warning"} />
+        <MetricCard label="Readiness" value={readiness.data?.ready ? "Ready" : "Not ready"} detail={`${passCount} pass / ${warningCount} warning / ${failCount} fail`} tone={readiness.data?.ready ? "good" : "warning"} />
+        <MetricCard label="IPv4 Forwarding" value={discovered?.ip_forwarding?.ipv4_enabled ? "Enabled" : "Disabled"} detail={discovered?.ip_forwarding?.error ?? "Read-only detected state"} />
+        <MetricCard label="Docker Bridges" value={String(discovered?.docker_bridges?.length ?? 0)} detail="Checked for subnet conflicts" />
+      </section>
+
+      <section className="panel">
+        <PanelTitle icon={ShieldAlert} title="Readiness Checks" />
+        <div className="alerts-list">
+          {checks.length === 0 ? (
+            <EmptyState title="Readiness unavailable" body={readiness.error ?? "The readiness endpoint has not returned checks yet."} />
+          ) : (
+            checks.map((check) => (
+              <article className={`alert-card ${check.status === "fail" ? "critical" : check.status}`} key={check.name}>
+                <div>
+                  <span>{check.status}</span>
+                  <strong>{check.name.replaceAll("_", " ")}</strong>
+                  <p>{check.reason ?? "Check passed."}</p>
+                </div>
+                <ClassBadge value={check.status} />
+              </article>
+            ))
+          )}
+        </div>
+      </section>
+
+      <section className="panel">
+        <PanelTitle icon={Network} title="Detected Interfaces" />
+        <div className="table">
+          <div className="table-row gateway-interface table-head">
+            <span>Interface</span>
+            <span>IPv4</span>
+            <span>IPv6</span>
+            <span>MAC</span>
+          </div>
+          {(discovered?.interfaces ?? []).length === 0 ? (
+            <EmptyState title="No interface data" body={discovery.error ?? "Discovery has not returned interface data yet."} />
+          ) : (
+            discovered?.interfaces?.map((iface) => (
+              <div className="table-row gateway-interface" key={iface.name}>
+                <span>{iface.name}</span>
+                <span>{iface.ipv4_addresses?.join(", ") || "None"}</span>
+                <span>{iface.ipv6_addresses?.join(", ") || "None"}</span>
+                <span>{iface.hardware_addr || "Unknown"}</span>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+
+      <section className="panel">
+        <PanelTitle icon={Globe2} title="Proposed Topology" />
+        <div className="scope-grid">
+          <span>WAN side</span>
+          <strong>{cfg?.gateway.wan_interface || discovered?.wan_interface || "Auto-detect from default route"}</strong>
+          <span>Monitored LAN side</span>
+          <strong>{cfg?.gateway.lan_interface || "Not selected"}</strong>
+          <span>Monitored LAN CIDR</span>
+          <strong>{cfg?.gateway.lan_cidr ?? "192.168.50.0/24"}</strong>
+          <span>Gateway IP</span>
+          <strong>{cfg?.gateway.gateway_ip ?? "192.168.50.1"}</strong>
+          <span>Accounting point</span>
+          <strong>Pre-NAT forward path</strong>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function DevicesView({ devices }: { devices: EndpointState<DevicesResponse> }) {
+  const rows = devices.data?.data ?? [];
+  return (
+    <>
+      <SectionTitle icon={Smartphone} eyebrow="Devices" title="Monitored LAN devices">
+        Device rows are shown only after gateway collection writes verified MAC-backed device data. IP-only identity is never treated as permanent.
+      </SectionTitle>
+      <section className="grid compact">
+        <MetricCard label="Mode" value={devices.data?.mode ?? "server_only"} detail="Gateway mode controls device collection accuracy" />
+        <MetricCard label="Known Devices" value={String(rows.length)} detail={devices.data?.message ?? "No monitored clients"} tone={rows.length > 0 ? "good" : "warning"} />
+        <MetricCard label="Identity Policy" value="MAC first" detail="IP address is current lease state only" />
+      </section>
+      <section className="panel">
+        <PanelTitle icon={Smartphone} title="Device Usage" />
+        <div className="table">
+          <div className="table-row device-row table-head">
+            <span>Device</span>
+            <span>IP</span>
+            <span>MAC</span>
+            <span>Status</span>
+          </div>
+          <EmptyState title="No monitored clients" body={devices.data?.message ?? "Gateway mode is not enabled yet."} />
+        </div>
+      </section>
+    </>
+  );
+}
+
+function ISPUsageView({ usage }: { usage: EndpointState<ISPUsageResponse> }) {
+  const data = usage.data;
+  const free = data?.free_night_bytes ?? 0;
+  const anytime = data?.anytime_bytes ?? 0;
+  const total = data?.total_bytes ?? 0;
+  const maxHour = Math.max(...(data?.hourly ?? []).map((row) => row.bytes), 0);
+
+  return (
+    <>
+      <SectionTitle icon={BarChart3} eyebrow="ISP Usage" title="Measured free/night and anytime usage">
+        This uses existing server Internet traffic today. Later gateway mode will aggregate verified per-device traffic into the same configurable buckets.
+      </SectionTitle>
+      <section className="grid compact">
+        <MetricCard label="Measured Total Today" value={formatBytes(total)} detail={data?.scope ?? "server"} tone="accent" />
+        <MetricCard label="Free/Night" value={formatBytes(free)} detail={`${data?.window.free_start ?? "00:00"}-${data?.window.free_end ?? "07:00"} ${data?.window.timezone ?? "Asia/Colombo"}`} tone="good" />
+        <MetricCard label="Anytime" value={formatBytes(anytime)} detail="Outside the free/night window" tone="warning" />
+      </section>
+      <section className="panel">
+        <PanelTitle icon={BarChart3} title="Hourly Measured Usage" />
+        <div className="bars">
+          {(data?.hourly ?? []).length === 0 ? (
+            <EmptyState title="No ISP bucket data" body={data?.message ?? usage.error ?? "No server Internet buckets are available yet."} />
+          ) : (
+            data?.hourly?.map((row) => (
+              <TrafficBar key={`${row.bucket_start}-${row.period}`} label={`${formatDateTime(row.bucket_start)} ${row.period.replaceAll("_", " ")}`} bytes={row.bytes} max={maxHour} />
+            ))
+          )}
+        </div>
+      </section>
+      <section className="panel split">
+        <div>
+          <PanelTitle icon={FileText} title="Daily Report" />
+          <p className="muted">Measured usage only. This is not an official ISP billing statement.</p>
+        </div>
+        <input className="date-input" type="date" defaultValue={new Date().toISOString().slice(0, 10)} aria-label="Report date" />
+      </section>
     </>
   );
 }
@@ -671,7 +927,7 @@ function SettingsView({
 function App() {
   const [activeSection, setActiveSection] = useState<SectionId>("overview");
   const [refreshMs, setRefreshMs] = useState(5000);
-  const { dashboard, collector, hourly, updatedAt, load } = useDashboardData(refreshMs);
+  const { dashboard, collector, hourly, gatewayDiscovery, gatewayReadiness, devices, ispUsage, updatedAt, load } = useDashboardData(refreshMs);
 
   const totals = dashboard.data?.today ?? emptyTotals;
   const hourlyBuckets = hourly.data?.data ?? [];
@@ -710,6 +966,9 @@ function App() {
           <OverviewView totals={totals} collector={collector.data} hourlyBuckets={hourlyBuckets} updatedAt={updatedAt} onRefresh={() => void load()} />
         ) : null}
         {activeSection === "network" ? <NetworkView totals={totals} hourlyBuckets={hourlyBuckets} /> : null}
+        {activeSection === "gateway" ? <GatewayView discovery={gatewayDiscovery} readiness={gatewayReadiness} /> : null}
+        {activeSection === "devices" ? <DevicesView devices={devices} /> : null}
+        {activeSection === "isp" ? <ISPUsageView usage={ispUsage} /> : null}
         {activeSection === "containers" ? <ContainersView totals={totals} /> : null}
         {activeSection === "processes" ? <ProcessesView /> : null}
         {activeSection === "connections" ? <ConnectionsView totals={totals} hourlyBuckets={hourlyBuckets} /> : null}

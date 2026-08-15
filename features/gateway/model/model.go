@@ -37,7 +37,7 @@ const (
 type AccountingPoint string
 
 const (
-	AccountingPointForwardPreNAT AccountingPoint = "forward_prenat"
+	AccountingPointForwardPreNAT  AccountingPoint = "forward_prenat"
 	AccountingPointForwardPostNAT AccountingPoint = "forward_postnat"
 	AccountingPointLANIngress     AccountingPoint = "lan_ingress"
 	AccountingPointWANEgress      AccountingPoint = "wan_egress"

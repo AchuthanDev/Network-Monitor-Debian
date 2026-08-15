@@ -9,6 +9,22 @@ make build
 docker compose -f deployments/docker/compose.yml config
 ```
 
+Go tests do not require Go to be installed on the host. `make test` runs Go modules inside the pinned `golang:1.23.10-alpine` container.
+
+Equivalent Go-only command:
+
+```bash
+docker compose -f deployments/docker/compose.yml --profile test run --rm --no-deps collector-test
+```
+
+Gateway simulation command:
+
+```bash
+make gateway-sim-test
+```
+
+The gateway simulation runs in a privileged container with its own network namespaces. It must not modify host routing, DHCP, DNS, nftables, firewall, or interfaces.
+
 ## Critical Accounting Tests
 
 Required before Phase 2 is considered complete:
@@ -32,6 +48,14 @@ Gateway model tests live in `features/gateway`. They define behavior before gate
 - IP-only device identity: marked ephemeral.
 - Docker bridge traffic: not attributed to a LAN device.
 - Server host traffic: remains `host/server`.
+
+Gateway namespace integration tests cover:
+
+- Isolated client/gateway/WAN namespace topology.
+- nftables pre-NAT forward accounting.
+- NAT masquerade after accounting.
+- Two separately attributed clients.
+- Double-count prevention by checking measured bytes are not multiplied by multiple hooks.
 
 Current host inspection on 2026-08-14 showed `net.netfilter.nf_conntrack_acct=0`. In that state Phase 2 must report accounting unavailable. Enabling conntrack byte accounting is an explicit deployment action, not something the application silently changes.
 

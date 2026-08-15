@@ -108,6 +108,16 @@ Potential future enhancement:
 
 Do not count the same forwarded packet at LAN ingress and WAN egress. The collector must select one authoritative accounting point per mode.
 
+## Pre-NAT Strategy Choice
+
+| Option | Use now | Reason |
+| --- | --- | --- |
+| nftables forward chain counters/maps | yes | Runs before source NAT, matches the gateway packet path, integrates with existing nftables direction, and can aggregate without packet database writes |
+| conntrack original tuples | diagnostic/fallback | Preserves original tuple metadata but polling can undercount short-lived flows and should not be first authoritative implementation |
+| eBPF TC/XDP/cgroup hooks | later | Strong future option for richer metadata/realtime events, but more kernel/capability complexity than needed for the first gateway foundation |
+
+The first authoritative accounting point is the nftables `forward` hook before `postrouting` masquerade. Rules must match monitored LAN source addresses/MAC evidence before NAT so traffic remains attributable to `192.168.50.x` and the device MAC instead of only the Debian WAN address.
+
 ```mermaid
 flowchart LR
   Client[LAN client]
