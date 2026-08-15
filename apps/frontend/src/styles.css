@@ -480,7 +480,8 @@ select {
   color: #edf2f7;
 }
 
-.date-input {
+.date-input,
+.number-input {
   min-width: 180px;
   border: 1px solid rgba(207, 216, 226, 0.22);
   border-radius: 8px;

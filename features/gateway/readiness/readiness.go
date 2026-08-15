@@ -50,6 +50,7 @@ func Evaluate(cfg gatewayconfig.Config, discovered discovery.Report) Report {
 	report.Checks = append(report.Checks, checkListeners("dns_conflict", discovered.DNSListeners, "DNS listener detected; verify binding/upstream plan before enabling gateway DNS"))
 	report.Checks = append(report.Checks, checkPiHole(discovered))
 	report.Checks = append(report.Checks, checkSSHPreservation(wan, lan, discovered))
+	report.Checks = append(report.Checks, checkExistingGatewayRules(discovered))
 	if discovered.Nftables.Available {
 		report.Checks = append(report.Checks, Check{Name: "nftables_available", Status: StatusPass})
 	} else {
@@ -112,10 +113,10 @@ func checkLANPhysicalState(cfg gatewayconfig.Config, lan string, discovered disc
 			checks = append(checks, Check{Name: "lan_link_speed", Status: StatusPass, Reason: "1 Gbps or faster link detected"})
 		case iface.SpeedMbps == 0:
 			checks = append(checks, Check{Name: "lan_link_speed", Status: StatusWarning, Reason: "Link speed is unavailable; confirm 1 Gbps before activation"})
+		case iface.SpeedMbps == 100:
+			checks = append(checks, Check{Name: "lan_link_speed", Status: StatusWarning, Reason: "Selected LAN interface is 100 Mbps; usable with explicit acceptance, but it will bottleneck clients"})
 		case cfg.Gateway.AllowSlowLAN:
 			checks = append(checks, Check{Name: "lan_link_speed", Status: StatusWarning, Reason: "Link speed is below 1 Gbps but slow-LAN override is enabled"})
-		case iface.SpeedMbps == 100:
-			checks = append(checks, Check{Name: "lan_link_speed", Status: StatusFail, Reason: "Selected LAN interface is only 100 Mbps; 1 Gbps full duplex is required unless explicitly overridden"})
 		default:
 			checks = append(checks, Check{Name: "lan_link_speed", Status: StatusFail, Reason: "Selected LAN interface is below the required 1 Gbps link speed"})
 		}
@@ -172,6 +173,19 @@ func checkPiHole(discovered discovery.Report) Check {
 		}
 	}
 	return Check{Name: "pihole_dns_detected", Status: StatusWarning, Reason: "No DNS listener was detected on port 53"}
+}
+
+func checkExistingGatewayRules(discovered discovery.Report) Check {
+	ruleset := discovered.Nftables.Ruleset
+	if ruleset == "" {
+		return Check{Name: "existing_gateway_rules", Status: StatusWarning, Reason: "nftables ruleset was not available for stale gateway-rule inspection"}
+	}
+	if strings.Contains(ruleset, "192.168.50.1") ||
+		strings.Contains(ruleset, "192.168.50.0/24") ||
+		strings.Contains(ruleset, "network_monitor_gateway") {
+		return Check{Name: "existing_gateway_rules", Status: StatusWarning, Reason: "Existing gateway-looking rules were detected; review before activation so Network Monitor does not overlap stale/manual rules"}
+	}
+	return Check{Name: "existing_gateway_rules", Status: StatusPass}
 }
 
 func checkInterface(name string, value string, discovered discovery.Report, missingReason string) Check {

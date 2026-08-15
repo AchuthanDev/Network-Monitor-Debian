@@ -33,6 +33,12 @@ The first snapshot is treated as baseline. This prevents the system from countin
 
 Temporary Phase 2 limitation: nftables totals are accurate for aggregate Internet/LAN usage, but they do not yet provide process/container/destination attribution. Phase 3 should add process attribution using eBPF/socket metadata while preserving nftables totals as a reconciliation source.
 
+## Measurement Precision
+
+Reports use measured network bytes, not application payload or downloaded file size. Gateway simulations record both download-side payload overhead and bidirectional Internet totals. Bidirectional totals include TCP/IP framing, HTTP metadata, connection setup/teardown, client ACK/control upload traffic, and any retransmissions visible at the accounting point.
+
+The monitor must not subtract estimated protocol overhead to make values look closer to file sizes. ISP counters may measure at a different layer, so reports expose measurement metadata such as source, scope, classification method, and precision for future ISP comparison.
+
 Requirements for conntrack fallback accounting:
 
 - `/proc/net/nf_conntrack` must be readable by the collector.

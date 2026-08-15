@@ -139,8 +139,8 @@ Planned changes only:
 
 - Enable IPv4 forwarding, preserving the previous value for rollback.
 - Assign `192.168.50.1/24` to the selected monitored LAN interface.
-- Create isolated nftables table `inet network_monitor`.
-- Start one DHCP service bound only to the monitored LAN interface.
+- Create isolated gateway nftables table `inet network_monitor_gateway`.
+- Start one DHCP-only service bound only to the monitored LAN interface.
 - Keep management access through `enp0s31f6` on `192.168.1.0/24`.
 
 ## nftables Design
@@ -148,14 +148,14 @@ Planned changes only:
 The generated table is project-owned:
 
 ```text
-table inet network_monitor
+table inet network_monitor_gateway
 ```
 
 Chains:
 
-- `forward_prenat_account`: `type filter hook forward priority -150`; counts client traffic before source NAT.
-- `gateway_forward`: `type filter hook forward priority 0`; isolated gateway allow rules.
-- `wan_nat`: `type nat hook postrouting priority srcnat`; masquerades monitored LAN traffic to WAN.
+- `nm_gateway_prenat_account`: `type filter hook forward priority -150`; counts client traffic before source NAT.
+- `nm_gateway_forward`: `type filter hook forward priority 0`; isolated gateway allow rules.
+- `nm_gateway_nat`: `type nat hook postrouting priority srcnat`; masquerades monitored LAN traffic to WAN.
 
 The accounting chain is the only chain with byte counters. This avoids counting the same forwarded packet again in policy or NAT chains.
 
@@ -193,8 +193,8 @@ Planned persistent components:
 
 - NetworkManager connection for the new LAN interface with static `192.168.50.1/24`.
 - sysctl drop-in for IPv4 forwarding.
-- nftables rules loaded from a project-owned file containing only `inet network_monitor`.
-- dedicated dnsmasq service bound to the monitored LAN interface.
+- nftables rules loaded from a project-owned file containing only `inet network_monitor_gateway`.
+- dedicated DHCP-only dnsmasq service bound to the monitored LAN interface with `port=0`.
 - existing Docker services unchanged.
 - network-monitor collector/API/web/db startup order unchanged.
 
@@ -203,7 +203,7 @@ Planned persistent components:
 Rollback must remove only project-owned gateway state:
 
 ```bash
-nft delete table inet network_monitor
+nft delete table inet network_monitor_gateway
 systemctl stop network-monitor-dnsmasq.service
 ip addr del 192.168.50.1/24 dev <SECOND_INTERFACE>
 sysctl -w net.ipv4.ip_forward=<previous-value>

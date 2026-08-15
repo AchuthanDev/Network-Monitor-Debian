@@ -72,17 +72,17 @@ go run ./apps/gatewayctl/cmd/network-monitor-gateway nftables \
 ip netns exec nm-gw nft -f /tmp/network-monitor-gateway.nft
 
 ip netns exec nm-gw nft -f /tmp/network-monitor-gateway.nft
-ip netns exec nm-gw nft delete table inet network_monitor
-if ip netns exec nm-gw nft list table inet network_monitor >/dev/null 2>&1; then
+ip netns exec nm-gw nft delete table inet network_monitor_gateway
+if ip netns exec nm-gw nft list table inet network_monitor_gateway >/dev/null 2>&1; then
   echo "FAIL: rollback removal left project-owned nftables table behind" >&2
   exit 1
 fi
 
 ip netns exec nm-gw nft -f /tmp/network-monitor-gateway.nft
-( sleep 1; ip netns exec nm-gw nft delete table inet network_monitor ) &
+( sleep 1; ip netns exec nm-gw nft delete table inet network_monitor_gateway ) &
 SAFETY_PID="$!"
 wait "$SAFETY_PID"
-if ip netns exec nm-gw nft list table inet network_monitor >/dev/null 2>&1; then
+if ip netns exec nm-gw nft list table inet network_monitor_gateway >/dev/null 2>&1; then
   echo "FAIL: safety timer rollback left project-owned nftables table behind" >&2
   exit 1
 fi
@@ -99,7 +99,7 @@ ip netns exec nm-wan ss -ltn | grep -q ':8080' || {
 }
 
 counter_bytes() {
-  ip netns exec nm-gw nft list counter inet network_monitor "$1" | awk '{ for (i = 1; i <= NF; i++) if ($i == "bytes") print $(i + 1) }'
+  ip netns exec nm-gw nft list counter inet network_monitor_gateway "$1" | awk '{ for (i = 1; i <= NF; i++) if ($i == "bytes") print $(i + 1) }'
 }
 
 assert_zero() {
@@ -131,20 +131,20 @@ assert_not_double_counted() {
   fi
 }
 
-lan_before="$(counter_bytes client_lan_upload)"
+lan_before="$(counter_bytes nm_gateway_client_lan_upload)"
 assert_zero "$lan_before" "LAN-to-local before Internet tests"
 
 ip netns exec nm-c1 curl -fsS http://198.51.100.2:8080/blob.bin >/dev/null
 ip netns exec nm-c2 curl -fsS http://198.51.100.2:8080/blob.bin >/dev/null
 ip netns exec nm-c2 curl -fsS http://198.51.100.2:8080/blob.bin >/dev/null
 
-client_a_up="$(counter_bytes client_a_internet_upload)"
-client_a_down="$(counter_bytes client_a_internet_download)"
-client_b_up="$(counter_bytes client_b_internet_upload)"
-client_b_down="$(counter_bytes client_b_internet_download)"
+client_a_up="$(counter_bytes nm_gateway_client_a_internet_upload)"
+client_a_down="$(counter_bytes nm_gateway_client_a_internet_download)"
+client_b_up="$(counter_bytes nm_gateway_client_b_internet_upload)"
+client_b_down="$(counter_bytes nm_gateway_client_b_internet_download)"
 client_a=$((client_a_up + client_a_down))
 client_b=$((client_b_up + client_b_down))
-lan_after="$(counter_bytes client_lan_upload)"
+lan_after="$(counter_bytes nm_gateway_client_lan_upload)"
 
 assert_gt_zero "$client_a_down" "client A download"
 assert_gt_zero "$client_a_up" "client A upload"
@@ -175,7 +175,7 @@ difference_bytes() {
 }
 
 echo "PASS: isolated gateway simulation"
-echo "nftables_table=inet network_monitor"
+echo "nftables_table=inet network_monitor_gateway"
 echo "rollback_removal=pass"
 echo "safety_timer_rollback=pass"
 echo "client_a_internet_bytes=$client_a"

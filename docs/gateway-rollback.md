@@ -7,7 +7,7 @@ Rollback must only remove Network Monitor-owned configuration. It must not flush
 Every dry-run/apply plan must include:
 
 ```text
-nft delete table inet network_monitor
+nft delete table inet network_monitor_gateway
 systemctl stop network-monitor-dnsmasq.service
 ip addr del <gateway_ip> dev <lan_interface>
 sysctl -w net.ipv4.ip_forward=<previous-value>
@@ -50,4 +50,4 @@ apply dry-run reviewed
   -> cancel timer only after confirmation
 ```
 
-If confirmation is not received, rollback must remove only project-owned state such as `inet network_monitor`, the project DHCP service, and the monitored-LAN address. Namespace simulation validates this flow without touching the host network.
+If confirmation is not received, rollback must remove only project-owned gateway state such as `inet network_monitor_gateway`, the project DHCP service, and the monitored-LAN address. Namespace simulation validates this flow without touching the host network.

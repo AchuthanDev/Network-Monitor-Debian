@@ -46,7 +46,8 @@ Once `nft` is installed, review and record:
 
 - Docker-created tables/chains
 - host firewall tables/chains
-- any existing project-owned table named `network_monitor`
+- any existing host-accounting table named `network_monitor`
+- any existing gateway table named `network_monitor_gateway`
 - NAT/postrouting chains
 - forward chains
 - default policies
@@ -54,10 +55,10 @@ Once `nft` is installed, review and record:
 Expected project design remains isolated:
 
 ```text
-table inet network_monitor
-  chain forward_prenat_account
-  chain gateway_forward
-  chain wan_nat
+table inet network_monitor_gateway
+  chain nm_gateway_prenat_account
+  chain nm_gateway_forward
+  chain nm_gateway_nat
 ```
 
 The project must not modify Docker-owned chains directly.
@@ -153,7 +154,9 @@ When a second NIC appears, readiness should require:
 
 - WAN and LAN are different interfaces
 - LAN has link up
-- LAN negotiates `1000 Mb/s` or faster unless `NETWORK_MONITOR_GATEWAY_ALLOW_SLOW_LAN=true` is explicitly set
+- LAN negotiates `1000 Mb/s` or faster
+- `100 Mb/s` full duplex is a warning and must be explicitly accepted because it will bottleneck clients
+- links below `100 Mb/s` fail readiness
 - LAN is full duplex
 - LAN has no default route
 - LAN is not already part of another bridge or bond
