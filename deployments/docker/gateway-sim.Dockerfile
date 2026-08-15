@@ -11,6 +11,7 @@ WORKDIR /src
 COPY go.work ./
 COPY features/gateway ./features/gateway
 COPY features/network-usage ./features/network-usage
+COPY features/traffic-classification ./features/traffic-classification
 COPY apps/backend ./apps/backend
 COPY apps/collector ./apps/collector
 COPY apps/gatewayctl ./apps/gatewayctl
