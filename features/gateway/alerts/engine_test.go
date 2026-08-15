@@ -1,6 +1,9 @@
 package alerts
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestEvaluateDeviceDailyThreshold(t *testing.T) {
 	alerts := Evaluate(Rule{Name: "device daily Internet > 2 GB", ThresholdBytes: 2_000_000_000}, Usage{
@@ -46,5 +49,34 @@ func TestEvaluateCanIncludeUnknownTraffic(t *testing.T) {
 	})
 	if len(alerts) != 1 {
 		t.Fatalf("expected unknown traffic alert, got %d", len(alerts))
+	}
+}
+
+func TestDeduplicatorSuppressesRepeatedTierWithinCooldown(t *testing.T) {
+	dedupe := NewDeduplicator()
+	rule := Rule{
+		Name:           "social/video daily usage",
+		Thresholds:     []uint64{2_000_000_000, 5_000_000_000},
+		Included:       []string{"social_media", "video_streaming"},
+		Cooldown:       time.Hour,
+		UnknownPolicy:  UnknownTrafficExclude,
+		ThresholdBytes: 2_000_000_000,
+	}
+	usage := Usage{
+		DeviceID: "dev_phone",
+		CategoryBytes: map[string]uint64{
+			"video_streaming": 2_400_000_000,
+		},
+	}
+	now := time.Date(2026, 8, 15, 14, 0, 0, 0, time.UTC)
+	if got := dedupe.Evaluate(rule, usage, now); len(got) != 1 {
+		t.Fatalf("expected first alert, got %d", len(got))
+	}
+	if got := dedupe.Evaluate(rule, usage, now.Add(time.Minute)); len(got) != 0 {
+		t.Fatalf("expected duplicate to be suppressed, got %+v", got)
+	}
+	usage.CategoryBytes["video_streaming"] = 5_500_000_000
+	if got := dedupe.Evaluate(rule, usage, now.Add(2*time.Minute)); len(got) != 1 || got[0].Tier != 5_000_000_000 {
+		t.Fatalf("expected higher tier alert, got %+v", got)
 	}
 }
