@@ -73,14 +73,20 @@ type reportResponse struct {
 }
 
 type dailyReportResponse struct {
-	Status       string `json:"status"`
-	Message      string `json:"message,omitempty"`
-	Date         string `json:"date"`
-	Internet     uint64 `json:"internet_bytes"`
-	Free         uint64 `json:"free_night_bytes"`
-	Anytime      uint64 `json:"anytime_bytes"`
-	UnknownBytes uint64 `json:"unknown_bytes"`
-	GeneratedAt  string `json:"generated_at"`
+	Status                 string  `json:"status"`
+	Message                string  `json:"message,omitempty"`
+	Date                   string  `json:"date"`
+	Internet               uint64  `json:"internet_bytes"`
+	Free                   uint64  `json:"free_night_bytes"`
+	Anytime                uint64  `json:"anytime_bytes"`
+	ClassifiedBytes        uint64  `json:"classified_bytes"`
+	UnknownBytes           uint64  `json:"unknown_bytes"`
+	ClassificationCoverage float64 `json:"classification_coverage"`
+	TopService             string  `json:"top_service,omitempty"`
+	TopCategory            string  `json:"top_category,omitempty"`
+	PeakHour               string  `json:"peak_hour,omitempty"`
+	Alerts                 uint64  `json:"alerts"`
+	GeneratedAt            string  `json:"generated_at"`
 }
 
 type wizardResponse struct {
@@ -479,6 +485,15 @@ func writeDailyReport(w http.ResponseWriter, r *http.Request, store *db.Store, c
 			response.Free += bytes
 		} else {
 			response.Anytime += bytes
+		}
+	}
+	if summary, err := store.ClassificationSummary(r.Context(), day, day.Add(24*time.Hour)); err == nil {
+		response.ClassifiedBytes = summary.ClassifiedBytes
+		response.UnknownBytes = summary.UnknownBytes
+		response.TopService = summary.TopService
+		response.TopCategory = summary.TopCategory
+		if summary.ClassifiedBytes+summary.UnknownBytes > 0 {
+			response.ClassificationCoverage = float64(summary.ClassifiedBytes) / float64(summary.ClassifiedBytes+summary.UnknownBytes)
 		}
 	}
 	writeJSON(w, http.StatusOK, response)

@@ -37,6 +37,41 @@ func TestEvaluateCategoryAwareThresholdExcludesDownloads(t *testing.T) {
 	}
 }
 
+func TestPhoneYouTubeTriggersSocialVideoAlert(t *testing.T) {
+	alerts := Evaluate(Rule{
+		Name:           "social/video daily usage",
+		ThresholdBytes: 2_000_000_000,
+		Included:       []string{"social_media", "video_streaming"},
+		UnknownPolicy:  UnknownTrafficExclude,
+	}, Usage{
+		DeviceID: "dev_phone",
+		CategoryBytes: map[string]uint64{
+			"video_streaming": 2_500_000_000,
+		},
+	})
+	if len(alerts) != 1 {
+		t.Fatalf("expected social/video alert, got %d", len(alerts))
+	}
+}
+
+func TestKnownDownloadDoesNotTriggerSocialVideoAlert(t *testing.T) {
+	alerts := Evaluate(Rule{
+		Name:           "social/video daily usage",
+		ThresholdBytes: 2_000_000_000,
+		Included:       []string{"social_media", "video_streaming"},
+		Excluded:       []string{"downloads"},
+		UnknownPolicy:  UnknownTrafficExclude,
+	}, Usage{
+		DeviceID: "dev_laptop",
+		CategoryBytes: map[string]uint64{
+			"downloads": 10_000_000_000,
+		},
+	})
+	if len(alerts) != 0 {
+		t.Fatalf("known download should not trigger social/video alert: %+v", alerts)
+	}
+}
+
 func TestEvaluateCanIncludeUnknownTraffic(t *testing.T) {
 	alerts := Evaluate(Rule{
 		Name:           "unknown usage",
@@ -49,6 +84,34 @@ func TestEvaluateCanIncludeUnknownTraffic(t *testing.T) {
 	})
 	if len(alerts) != 1 {
 		t.Fatalf("expected unknown traffic alert, got %d", len(alerts))
+	}
+}
+
+func TestUnknownHTTPSTriggersDedicatedUnknownRule(t *testing.T) {
+	alerts := Evaluate(Rule{
+		Name:           "unknown HTTPS daily usage",
+		Metric:         "unknown",
+		ThresholdBytes: 2_000_000_000,
+	}, Usage{DeviceID: "dev_phone", UnknownBytes: 3_000_000_000})
+	if len(alerts) != 1 {
+		t.Fatalf("expected unknown HTTPS alert, got %d", len(alerts))
+	}
+}
+
+func TestBurstAndUploadSpikeRules(t *testing.T) {
+	burst := Evaluate(Rule{Name: "1 GB transferred within 10 minutes", Metric: "burst_10m", ThresholdBytes: 1_000_000_000}, Usage{
+		DeviceID:      "dev_phone",
+		BurstBytes10m: 1_200_000_000,
+	})
+	if len(burst) != 1 {
+		t.Fatalf("expected burst alert, got %d", len(burst))
+	}
+	upload := Evaluate(Rule{Name: "upload spike", Metric: "upload", ThresholdBytes: 500_000_000}, Usage{
+		DeviceID:    "dev_laptop",
+		UploadBytes: 650_000_000,
+	})
+	if len(upload) != 1 {
+		t.Fatalf("expected upload alert, got %d", len(upload))
 	}
 }
 

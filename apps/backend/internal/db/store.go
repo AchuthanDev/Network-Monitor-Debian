@@ -67,6 +67,13 @@ type CategoryBreakdownRow struct {
 	UploadBytes   uint64 `json:"upload_bytes"`
 }
 
+type ClassificationSummary struct {
+	ClassifiedBytes uint64 `json:"classified_bytes"`
+	UnknownBytes    uint64 `json:"unknown_bytes"`
+	TopService      string `json:"top_service,omitempty"`
+	TopCategory     string `json:"top_category,omitempty"`
+}
+
 func New(ctx context.Context, databaseURL string) (*Store, error) {
 	if databaseURL == "" {
 		return nil, fmt.Errorf("database url is empty")
@@ -248,4 +255,35 @@ func (s *Store) CategoryBreakdown(ctx context.Context, deviceID string, from tim
 		result = append(result, row)
 	}
 	return result, rows.Err()
+}
+
+func (s *Store) ClassificationSummary(ctx context.Context, from time.Time, to time.Time) (ClassificationSummary, error) {
+	var summary ClassificationSummary
+	err := s.pool.QueryRow(ctx, `
+		SELECT
+		  COALESCE(SUM(CASE WHEN confidence <> 'unknown' AND category <> 'unknown_https' THEN download_bytes + upload_bytes ELSE 0 END), 0),
+		  COALESCE(SUM(CASE WHEN confidence = 'unknown' OR category = 'unknown_https' THEN download_bytes + upload_bytes ELSE 0 END), 0)
+		FROM destination_usage_hour
+		WHERE bucket_start >= $1 AND bucket_start < $2
+	`, from.UTC(), to.UTC()).Scan(&summary.ClassifiedBytes, &summary.UnknownBytes)
+	if err != nil {
+		return summary, err
+	}
+	_ = s.pool.QueryRow(ctx, `
+		SELECT service
+		FROM destination_usage_hour
+		WHERE bucket_start >= $1 AND bucket_start < $2
+		GROUP BY service
+		ORDER BY SUM(download_bytes + upload_bytes) DESC
+		LIMIT 1
+	`, from.UTC(), to.UTC()).Scan(&summary.TopService)
+	_ = s.pool.QueryRow(ctx, `
+		SELECT category
+		FROM destination_usage_hour
+		WHERE bucket_start >= $1 AND bucket_start < $2
+		GROUP BY category
+		ORDER BY SUM(download_bytes + upload_bytes) DESC
+		LIMIT 1
+	`, from.UTC(), to.UTC()).Scan(&summary.TopCategory)
+	return summary, nil
 }
