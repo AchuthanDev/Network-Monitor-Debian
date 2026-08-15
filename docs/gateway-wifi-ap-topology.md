@@ -17,7 +17,7 @@ wlp1s0 Intel 8260 Wi-Fi AP
 192.168.50.1/24
    |
 Phone / TV / Laptop
-192.168.50.100-192.168.50.220
+192.168.50.100-192.168.50.150 (initial one-device test)
 ```
 
 `enp0s31f6` remains the upstream interface and the management path. Gateway preparation must not remove its address, default route, or SSH reachability from `192.168.1.0/24`.
@@ -81,7 +81,7 @@ Use DHCP-only `dnsmasq` bound to `wlp1s0` after AP mode is approved:
 interface=wlp1s0
 port=0
 bind-interfaces
-dhcp-range=192.168.50.100,192.168.50.220,12h
+dhcp-range=192.168.50.100,192.168.50.150,12h
 dhcp-option=option:router,192.168.50.1
 dhcp-option=option:dns-server,192.168.50.1
 ```
@@ -99,3 +99,28 @@ This topology is safe to prepare in software because it keeps the Ethernet manag
 - SSH preservation and automatic rollback are tested immediately before live activation.
 
 No AP, DHCP, NAT, nftables, or interface changes are applied by this document.
+
+## Prepared One-Device Test Plan
+
+The repository can generate a dry-run test plan with:
+
+```bash
+go run ./apps/gatewayctl/cmd/network-monitor-gateway plan \
+  --mode gateway \
+  --wan enp0s31f6 \
+  --lan wlp1s0 \
+  --lan-mode wifi_ap \
+  --wifi-ap-test \
+  --dhcp \
+  --dhcp-start 192.168.50.100 \
+  --dhcp-end 192.168.50.150 \
+  --dns-mode pihole
+```
+
+The plan includes a `hostapd` template for SSID `NetworkMonitor-Test`, 2.4 GHz channel 6, and a passphrase placeholder `${NETWORK_MONITOR_AP_PASSPHRASE}`. The passphrase must come from a protected service environment or secret store; it is never committed to the repository.
+
+The future test sequence is: review the plan, confirm SSH remains on `enp0s31f6`, intentionally disconnect only the `Achuthan` managed Wi-Fi profile, start hostapd and DHCP-only dnsmasq on `wlp1s0`, apply only the project-owned gateway table, connect one phone, verify DHCP/DNS/Internet/LAN/Pi-hole/accounting, then rollback. Apply remains disabled until explicit approval.
+
+## Access Policy
+
+The generated gateway policy separates client traffic from management traffic. Test clients may use Internet, Pi-hole DNS, and explicitly selected local services such as Plex. SSH, PostgreSQL, Portainer, internal APIs, and other management ports remain denied by default unless a future reviewed policy explicitly allows them. The policy is prepared but not applied by this branch.
