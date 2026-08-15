@@ -21,9 +21,13 @@ type Plan struct {
 	Accounting       string   `json:"accounting"`
 	SSHManagement    string   `json:"ssh_management"`
 	Safety           string   `json:"safety"`
+	LANMode          string   `json:"lan_mode"`
+	TestMode         bool     `json:"test_mode"`
+	APImplementation string   `json:"ap_implementation,omitempty"`
 	WouldChange      []string `json:"would_change"`
 	NftablesRuleset  string   `json:"nftables_ruleset"`
 	DnsmasqConfig    string   `json:"dnsmasq_config,omitempty"`
+	HostapdConfig    string   `json:"hostapd_config,omitempty"`
 	RollbackCommands []string `json:"rollback_commands"`
 	Warnings         []string `json:"warnings"`
 }
@@ -41,6 +45,11 @@ func BuildDryRun(cfg gatewayconfig.Config) Plan {
 		Accounting:    "pre-NAT FORWARD hook in inet " + NftablesTableName + " using gateway-specific counters",
 		SSHManagement: "preserved through existing WAN/management interface; no SSH firewall changes are planned",
 		Safety:        "live apply requires explicit approval plus a 120-second rollback confirmation timer",
+		LANMode:       string(cfg.Gateway.LANMode),
+		TestMode:      cfg.Gateway.WiFiAP.TestMode,
+	}
+	if cfg.Gateway.LANMode == gatewayconfig.LANModeWiFiAP || cfg.Gateway.WiFiAP.TestMode {
+		result.APImplementation = "hostapd + DHCP-only dnsmasq; NetworkManager remains on the WAN interface"
 	}
 	if cfg.Mode != gatewayconfig.ModeGateway {
 		result.Warnings = append(result.Warnings, "Gateway mode is not enabled; this is a planning preview only")
@@ -59,6 +68,7 @@ func BuildDryRun(cfg gatewayconfig.Config) Plan {
 	}
 	result.NftablesRuleset = RenderNftables(cfg)
 	result.DnsmasqConfig = RenderDnsmasq(cfg)
+	result.HostapdConfig = RenderHostapd(cfg)
 	result.RollbackCommands = []string{
 		"nft delete table inet " + NftablesTableName,
 		"systemctl stop network-monitor-dnsmasq.service",
@@ -148,6 +158,30 @@ dhcp-range=%s,%s,12h
 dhcp-option=option:router,%s
 dhcp-option=option:dns-server,%s
 `, cfg.Gateway.LANInterface, cfg.Gateway.DHCP.RangeStart, cfg.Gateway.DHCP.RangeEnd, cfg.Gateway.GatewayIP, cfg.Gateway.GatewayIP)
+}
+
+func RenderHostapd(cfg gatewayconfig.Config) string {
+	if cfg.Gateway.LANMode != gatewayconfig.LANModeWiFiAP && !cfg.Gateway.WiFiAP.TestMode {
+		return ""
+	}
+	hwMode := "g"
+	if cfg.Gateway.WiFiAP.Band == "5ghz" {
+		hwMode = "a"
+	}
+	return fmt.Sprintf(`interface=%s
+driver=nl80211
+ssid=%s
+country_code=%s
+hw_mode=%s
+channel=%d
+wmm_enabled=1
+ieee80211n=1
+auth_algs=1
+wpa=2
+wpa_key_mgmt=WPA-PSK
+rsn_pairwise=CCMP
+wpa_passphrase=${%s}
+`, cfg.Gateway.LANInterface, cfg.Gateway.WiFiAP.SSID, cfg.Gateway.WiFiAP.CountryCode, hwMode, cfg.Gateway.WiFiAP.Channel, cfg.Gateway.WiFiAP.PassphraseEnv)
 }
 
 func sanitizeCounterName(value string) string {

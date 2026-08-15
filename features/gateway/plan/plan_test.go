@@ -54,3 +54,23 @@ func TestRenderDnsmasqIsDHCPOnly(t *testing.T) {
 		t.Fatalf("dnsmasq config must bind to the monitored LAN interface:\n%s", got)
 	}
 }
+
+func TestRenderHostapdUsesExternalPassphraseAndTestDefaults(t *testing.T) {
+	cfg := gatewayconfig.Default()
+	cfg.Gateway.LANInterface = "wlp1s0"
+	cfg.Gateway.LANMode = gatewayconfig.LANModeWiFiAP
+	cfg.Gateway.WiFiAP.TestMode = true
+
+	got := RenderHostapd(cfg)
+	for _, required := range []string{
+		"interface=wlp1s0",
+		"ssid=NetworkMonitor-Test",
+		"hw_mode=g",
+		"channel=6",
+		"wpa_passphrase=${NETWORK_MONITOR_AP_PASSPHRASE}",
+	} {
+		if !strings.Contains(got, required) {
+			t.Fatalf("hostapd test config missing %q:\n%s", required, got)
+		}
+	}
+}

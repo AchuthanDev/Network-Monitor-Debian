@@ -23,9 +23,10 @@ type Check struct {
 }
 
 type Report struct {
-	Ready  bool    `json:"ready"`
-	Mode   string  `json:"mode"`
-	Checks []Check `json:"checks"`
+	Ready           bool    `json:"ready"`
+	ActivationReady bool    `json:"activation_ready"`
+	Mode            string  `json:"mode"`
+	Checks          []Check `json:"checks"`
 }
 
 func Evaluate(cfg gatewayconfig.Config, discovered discovery.Report) Report {
@@ -78,6 +79,12 @@ func Evaluate(cfg gatewayconfig.Config, discovered discovery.Report) Report {
 		if check.Status == StatusFail {
 			report.Ready = false
 			break
+		}
+	}
+	report.ActivationReady = report.Ready
+	for _, check := range report.Checks {
+		if (check.Name == "wifi_current_mode" || check.Name == "lan_no_default_route") && check.Status != StatusPass {
+			report.ActivationReady = false
 		}
 	}
 	return report

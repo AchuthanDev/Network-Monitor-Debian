@@ -69,6 +69,14 @@ func parseConfigFlags(args []string) gatewayconfig.Config {
 	fs.StringVar(&cfg.Gateway.DHCP.RangeStart, "dhcp-start", cfg.Gateway.DHCP.RangeStart, "DHCP range start")
 	fs.StringVar(&cfg.Gateway.DHCP.RangeEnd, "dhcp-end", cfg.Gateway.DHCP.RangeEnd, "DHCP range end")
 	fs.BoolVar(&cfg.Gateway.DHCP.Enabled, "dhcp", cfg.Gateway.DHCP.Enabled, "include DHCP dry-run config")
+	lanMode := string(cfg.Gateway.LANMode)
+	fs.StringVar(&lanMode, "lan-mode", string(cfg.Gateway.LANMode), "LAN mode: ethernet or wifi_ap")
+	fs.BoolVar(&cfg.Gateway.WiFiAP.TestMode, "wifi-ap-test", cfg.Gateway.WiFiAP.TestMode, "prepare the isolated one-device Wi-Fi AP test mode")
+	fs.StringVar(&cfg.Gateway.WiFiAP.SSID, "ap-ssid", cfg.Gateway.WiFiAP.SSID, "test AP SSID")
+	fs.StringVar(&cfg.Gateway.WiFiAP.CountryCode, "ap-country", cfg.Gateway.WiFiAP.CountryCode, "Wi-Fi regulatory country code")
+	fs.StringVar(&cfg.Gateway.WiFiAP.Band, "ap-band", cfg.Gateway.WiFiAP.Band, "Wi-Fi AP band: 2.4ghz or 5ghz")
+	fs.IntVar(&cfg.Gateway.WiFiAP.Channel, "ap-channel", cfg.Gateway.WiFiAP.Channel, "Wi-Fi AP channel")
+	fs.StringVar(&cfg.Gateway.WiFiAP.PassphraseEnv, "ap-passphrase-env", cfg.Gateway.WiFiAP.PassphraseEnv, "environment variable holding the AP passphrase")
 	fs.BoolVar(&cfg.Gateway.AllowSlowLAN, "allow-slow-lan", cfg.Gateway.AllowSlowLAN, "allow monitored LAN links below 1 Gbps")
 	fs.StringVar(&dnsMode, "dns-mode", string(cfg.Gateway.DNS.Mode), "DNS mode: disabled, forward, or pihole")
 	fs.StringVar(&cfg.Timezone, "timezone", cfg.Timezone, "IANA timezone")
@@ -77,6 +85,10 @@ func parseConfigFlags(args []string) gatewayconfig.Config {
 	_ = fs.Bool("dry-run", true, "accepted for apply/rollback; live changes are disabled")
 	_ = fs.Parse(args)
 	cfg.Mode = gatewayconfig.Mode(mode)
+	cfg.Gateway.LANMode = gatewayconfig.LANMode(lanMode)
+	if cfg.Gateway.WiFiAP.TestMode {
+		cfg.Gateway.LANMode = gatewayconfig.LANModeWiFiAP
+	}
 	cfg.Gateway.DNS.Mode = gatewayconfig.DNSMode(dnsMode)
 	return cfg
 }

@@ -143,6 +143,7 @@ type GatewayDiscoveryResponse = {
 
 type GatewayReadinessResponse = {
   ready: boolean;
+  activation_ready?: boolean;
   mode: string;
   checks: Array<{
     name: string;
@@ -753,7 +754,7 @@ function GatewayView({
         <MetricCard label="Accounting Simulation" value={check("accounting_simulation")?.status === "pass" ? "Passed" : "Unknown"} detail="Namespace generated-rule test" tone={check("accounting_simulation")?.status === "pass" ? "good" : "warning"} />
         <MetricCard label="Rollback" value={check("rollback_plan_available")?.status === "pass" ? "Ready" : "Check"} detail={check("automatic_rollback_ready")?.reason ?? "Project-owned rollback only"} tone={check("rollback_plan_available")?.status === "pass" ? "good" : "warning"} />
         <MetricCard label="Hardware Link" value={hardwareLink} detail={hardwareDetail} tone={check("wifi_ap_capability")?.status === "pass" || check("lan_link_speed")?.status === "pass" ? "good" : "warning"} />
-        <MetricCard label="Ready for Gateway Activation" value={readiness.data?.ready ? "YES" : "NO"} detail={`${passCount} pass / ${warningCount} warning / ${failCount} fail`} tone={readiness.data?.ready ? "good" : "warning"} />
+        <MetricCard label="Ready for Gateway Activation" value={readiness.data?.activation_ready ? "YES" : "NO"} detail={`${passCount} pass / ${warningCount} warning / ${failCount} fail`} tone={readiness.data?.activation_ready ? "good" : "warning"} />
       </section>
 
       <section className="panel">
