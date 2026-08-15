@@ -10,7 +10,7 @@ Status: preparation only. Gateway mode is not active.
 - Proposed monitored LAN: `192.168.50.0/24`
 - Proposed gateway IP: `192.168.50.1`
 - Proposed DHCP pool: `192.168.50.100-192.168.50.220`
-- Dedicated monitored-LAN NIC: not connected
+- Monitored-LAN interface: `wlp1s0` is available as an AP-capable Wi-Fi test candidate; dedicated USB Ethernet remains the most stable high-throughput option
 - IPv4 forwarding: already enabled
 - Pi-hole owns host TCP/UDP port `53`
 
@@ -86,9 +86,9 @@ Supported interface modes:
 
 Report `AP supported: yes` only if `* AP` appears. This is informational only. Do not configure AP mode.
 
-## Production Topology
+## Supported Topologies
 
-Production recommendation remains dedicated Ethernet plus external AP/switch:
+Preferred high-throughput topology remains dedicated Ethernet plus external AP/switch:
 
 ```text
 SLT Fibre
@@ -117,6 +117,23 @@ The external AP must:
 - not use `192.168.1.0/24` on the monitored client side
 - use a static management IP inside the monitored LAN, for example `192.168.50.2`
 - hand client default gateway and DNS authority to Debian at `192.168.50.1`
+
+The accepted one-Ethernet test topology uses the Intel 8260 radio as the monitored LAN:
+
+```text
+SLT Fibre
+   |
+Tenda HG7
+192.168.1.1
+   |
+Debian WAN-side enp0s31f6
+existing 192.168.1.0/24 management path
+   |
+Debian wlp1s0 Wi-Fi AP
+192.168.50.1/24
+   |
+Phone / TV / Laptop
+```
 
 Debian will eventually be the gateway and DHCP authority for `192.168.50.0/24`, but only after explicit approval.
 
@@ -150,7 +167,7 @@ The software must not assume the final interface name.
 
 ## LAN Candidate Requirements
 
-When a second NIC appears, readiness should require:
+For Ethernet monitored-LAN interfaces, readiness should require:
 
 - WAN and LAN are different interfaces
 - LAN has link up
@@ -161,13 +178,21 @@ When a second NIC appears, readiness should require:
 - LAN has no default route
 - LAN is not already part of another bridge or bond
 - LAN is not Docker/bridge/veth/loopback
-- LAN is not the management Wi-Fi fallback
 - LAN subnet does not overlap current WAN LAN
 - LAN subnet does not overlap Docker networks
 - LAN subnet does not overlap active VPN routes
 - no DHCP conflict on the monitored LAN
 - DNS/Pi-hole plan is explicit
 - nftables tooling is available
+
+For Wi-Fi monitored-LAN interfaces, readiness should require:
+
+- `iw list` confirms `AP` mode.
+- WAN and Wi-Fi LAN are different interfaces.
+- Wi-Fi is not enslaved to a bridge or bond.
+- Existing SSH management remains on `enp0s31f6`.
+- Any current managed-client Wi-Fi connection is flagged as a warning and must be intentionally disconnected during a future approved AP activation.
+- AP plus managed/P2P concurrency limitations are displayed to the operator.
 
 Recommended values:
 
@@ -214,9 +239,8 @@ Measured bytes are expected to be slightly above payload bytes because accountin
 Gateway apply must remain disabled until all required checks pass:
 
 ```text
-[ ] USB Ethernet connected
-[ ] interface detected
-[ ] 1 Gbps link confirmed
+[ ] monitored LAN interface selected
+[ ] Ethernet link confirmed or Wi-Fi AP capability confirmed
 [ ] WAN unchanged
 [ ] LAN subnet validated
 [ ] nftables available

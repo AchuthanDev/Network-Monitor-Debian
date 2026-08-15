@@ -77,6 +77,7 @@ type HourlyResponse = {
 type GatewayInterface = {
   name: string;
   hardware_addr: string;
+  kind?: string;
   ipv4_addresses?: string[];
   ipv6_addresses?: string[];
   oper_state?: string;
@@ -90,6 +91,18 @@ type GatewayInterface = {
   has_default_route?: boolean;
   candidate_lan?: boolean;
   candidate_reason?: string;
+  wifi?: {
+    phy?: string;
+    current_mode?: string;
+    current_ssid?: string;
+    current_channel?: string;
+    ap_mode_supported: boolean;
+    supported_interface_modes?: string[];
+    bands?: string[];
+    channels?: string[];
+    concurrency?: string[];
+    notes?: string[];
+  };
 };
 
 type GatewayDiscoveryResponse = {
@@ -689,6 +702,18 @@ function GatewayView({
   const warningCount = checks.filter((check) => check.status === "warning").length;
   const check = (name: string) => checks.find((item) => item.name === name);
   const lanCandidates = discovered?.interfaces?.filter((iface) => iface.candidate_lan) ?? [];
+  const primaryLanCandidate = lanCandidates[0];
+  const lanDetail = primaryLanCandidate
+    ? primaryLanCandidate.wifi?.ap_mode_supported
+      ? `Wi-Fi AP candidate, ${primaryLanCandidate.wifi.current_mode || "mode unknown"} mode`
+      : `${primaryLanCandidate.speed_mbps || "unknown"} Mb/s Ethernet candidate`
+    : "Select an AP-capable Wi-Fi interface or dedicated Ethernet interface.";
+  const hardwareLink = check("wifi_ap_capability")?.status === "pass"
+    ? "Wi-Fi AP"
+    : check("lan_link_speed")?.status === "pass"
+      ? "1 Gbps"
+      : "Missing";
+  const hardwareDetail = check("wifi_ap_capability")?.reason ?? check("lan_full_duplex")?.reason ?? check("lan_link_speed")?.reason ?? "Monitored LAN interface required";
 
   return (
     <>
@@ -698,14 +723,14 @@ function GatewayView({
       <section className="grid compact">
         <MetricCard label="Gateway Mode" value={cfg?.mode === "gateway" ? "Enabled" : "Disabled"} detail="No live gateway changes are applied" />
         <MetricCard label="WAN" value={discovered?.wan_interface || "Unavailable"} detail={`Gateway ${discovered?.default_route?.gateway ?? "unknown"}`} tone={check("wan_interface")?.status === "pass" ? "good" : "warning"} />
-        <MetricCard label="LAN" value={cfg?.gateway.lan_interface || (lanCandidates[0]?.name ?? "Not connected")} detail={lanCandidates[0] ? `${lanCandidates[0].speed_mbps || "unknown"} Mb/s candidate available` : "Connect a dedicated Ethernet interface to continue."} tone={lanCandidates.length > 0 ? "good" : "warning"} />
+        <MetricCard label="LAN" value={cfg?.gateway.lan_interface || (primaryLanCandidate?.name ?? "Not selected")} detail={lanDetail} tone={lanCandidates.length > 0 ? "good" : "warning"} />
         <MetricCard label="nftables" value={discovered?.nftables?.available ? "Installed" : "Missing"} detail={discovered?.nftables?.error ?? "Required before live apply"} tone={discovered?.nftables?.available ? "good" : "warning"} />
         <MetricCard label="IPv4 Forwarding" value={discovered?.ip_forwarding?.ipv4_enabled ? "Enabled" : "Disabled"} detail={discovered?.ip_forwarding?.error ?? "Read-only detected state"} />
         <MetricCard label="Pi-hole DNS" value={check("pihole_dns_detected")?.status === "pass" ? "Detected" : "Check"} detail={check("pihole_dns_detected")?.reason ?? "Port 53 DNS evidence"} tone={check("pihole_dns_detected")?.status === "pass" ? "good" : "warning"} />
         <MetricCard label="DHCP Conflict" value={check("dhcp_conflict")?.status === "pass" ? "None" : "Warning"} detail={check("dhcp_conflict")?.reason ?? "No DHCP listener detected"} tone={check("dhcp_conflict")?.status === "pass" ? "good" : "warning"} />
         <MetricCard label="Accounting Simulation" value={check("accounting_simulation")?.status === "pass" ? "Passed" : "Unknown"} detail="Namespace generated-rule test" tone={check("accounting_simulation")?.status === "pass" ? "good" : "warning"} />
         <MetricCard label="Rollback" value={check("rollback_plan_available")?.status === "pass" ? "Ready" : "Check"} detail={check("automatic_rollback_ready")?.reason ?? "Project-owned rollback only"} tone={check("rollback_plan_available")?.status === "pass" ? "good" : "warning"} />
-        <MetricCard label="Hardware Link" value={check("lan_link_speed")?.status === "pass" ? "1 Gbps" : "Missing"} detail={check("lan_full_duplex")?.reason ?? check("lan_link_speed")?.reason ?? "Full-duplex monitored LAN required"} tone={check("lan_link_speed")?.status === "pass" ? "good" : "warning"} />
+        <MetricCard label="Hardware Link" value={hardwareLink} detail={hardwareDetail} tone={check("wifi_ap_capability")?.status === "pass" || check("lan_link_speed")?.status === "pass" ? "good" : "warning"} />
         <MetricCard label="Ready for Gateway Activation" value={readiness.data?.ready ? "YES" : "NO"} detail={`${passCount} pass / ${warningCount} warning / ${failCount} fail`} tone={readiness.data?.ready ? "good" : "warning"} />
       </section>
 
@@ -748,12 +773,12 @@ function GatewayView({
           ) : (
             discovered?.interfaces?.map((iface) => (
               <div className="table-row gateway-interface" key={iface.name}>
-                <span>{iface.name}</span>
+                <span>{iface.name}{iface.kind ? ` / ${iface.kind}` : ""}</span>
                 <span>{iface.ipv4_addresses?.join(", ") || "None"}</span>
                 <span>{iface.oper_state || "Unknown"}{iface.carrier ? ` / carrier ${iface.carrier}` : ""}{iface.duplex ? ` / ${iface.duplex}` : ""}</span>
-                <span>{iface.speed_mbps ? `${iface.speed_mbps} Mb/s` : "Unknown"}{iface.master ? ` / ${iface.master}` : ""}</span>
+                <span>{iface.wifi ? `${iface.wifi.ap_mode_supported ? "AP supported" : "AP not confirmed"}${iface.wifi.current_channel ? ` / ch ${iface.wifi.current_channel}` : ""}` : `${iface.speed_mbps ? `${iface.speed_mbps} Mb/s` : "Unknown"}${iface.master ? ` / ${iface.master}` : ""}`}</span>
                 <span>{iface.driver || "Unknown"}</span>
-                <span>{iface.managed_by ? `${iface.managed_by}${iface.connection_name ? ` / ${iface.connection_name}` : ""}` : "Unknown"}</span>
+                <span>{iface.managed_by ? `${iface.managed_by}${iface.connection_name ? ` / ${iface.connection_name}` : ""}` : "Unknown"}{iface.wifi?.current_mode ? ` / ${iface.wifi.current_mode}` : ""}</span>
                 <span title={iface.candidate_reason ?? ""}>{iface.candidate_lan ? "Yes" : "No"}</span>
                 <span>{iface.ipv6_addresses?.join(", ") || "None"}</span>
                 <span>{iface.hardware_addr || "Unknown"}</span>

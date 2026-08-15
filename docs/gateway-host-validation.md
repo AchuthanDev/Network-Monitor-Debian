@@ -117,7 +117,7 @@ Observed connections:
 - `/etc/network/interfaces`: present
 - `/etc/netplan`: absent
 
-Future USB Ethernet LAN configuration should use NetworkManager or a compatible mechanism. Do not install a competing network manager.
+Future monitored-LAN configuration should use NetworkManager or a compatible mechanism for interface ownership. For the accepted one-Ethernet test topology, `wlp1s0` may be used as a dedicated Wi-Fi AP only after AP mode is confirmed and the current managed Wi-Fi client connection is intentionally released during an approved activation phase.
 
 ## IPv4 Forwarding Source
 
@@ -159,7 +159,7 @@ Do not bind dnsmasq DNS to port 53. Do not run competing DNS services on the mon
 Use dnsmasq DHCP-only for the monitored LAN:
 
 ```text
-interface=<USB_LAN_INTERFACE>
+interface=<MONITORED_LAN_INTERFACE>
 port=0
 bind-interfaces
 dhcp-range=192.168.50.100,192.168.50.220,12h
@@ -190,7 +190,7 @@ Gateway activation must not remove the `192.168.1.0/24` address, default route, 
 Read-only gateway readiness with the current host state:
 
 - WAN interface `enp0s31f6`: pass
-- Dedicated LAN interface: fail, not connected/selected
+- Monitored LAN interface: `wlp1s0` is AP-capable and can be selected for a future Wi-Fi AP test; otherwise no dedicated Ethernet LAN is connected
 - nftables availability: pass
 - IPv4 forwarding: pass
 - Docker subnet overlap with `192.168.50.0/24`: pass
@@ -203,7 +203,7 @@ Read-only gateway readiness with the current host state:
 - Rollback plan: pass
 - Automatic rollback timer design: pass
 
-Activation remains blocked until a dedicated monitored-LAN Ethernet interface is connected and selected.
+Activation remains blocked until an approved monitored-LAN interface is selected. `wlp1s0` is technically viable for a controlled AP test, but live activation still requires explicit approval and rollback.
 
 ## USB Ethernet Requirement
 

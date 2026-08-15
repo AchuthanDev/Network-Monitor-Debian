@@ -34,6 +34,7 @@ type Interface struct {
 	Name            string   `json:"name"`
 	HardwareAddr    string   `json:"hardware_addr"`
 	Flags           []string `json:"flags"`
+	Kind            string   `json:"kind,omitempty"`
 	IPv4Addresses   []string `json:"ipv4_addresses"`
 	IPv6Addresses   []string `json:"ipv6_addresses"`
 	OperState       string   `json:"oper_state,omitempty"`
@@ -46,8 +47,22 @@ type Interface struct {
 	ConnectionName  string   `json:"connection_name,omitempty"`
 	HasDefaultRoute bool     `json:"has_default_route"`
 	Routes          []Route  `json:"routes,omitempty"`
+	WiFi            *WiFi    `json:"wifi,omitempty"`
 	CandidateLAN    bool     `json:"candidate_lan"`
 	CandidateReason string   `json:"candidate_reason,omitempty"`
+}
+
+type WiFi struct {
+	Phy                     string   `json:"phy,omitempty"`
+	CurrentMode             string   `json:"current_mode,omitempty"`
+	CurrentSSID             string   `json:"current_ssid,omitempty"`
+	CurrentChannel          string   `json:"current_channel,omitempty"`
+	APModeSupported         bool     `json:"ap_mode_supported"`
+	SupportedInterfaceModes []string `json:"supported_interface_modes,omitempty"`
+	Bands                   []string `json:"bands,omitempty"`
+	Channels                []string `json:"channels,omitempty"`
+	Concurrency             []string `json:"concurrency,omitempty"`
+	Notes                   []string `json:"notes,omitempty"`
 }
 
 type Route struct {
@@ -164,6 +179,7 @@ func annotateInterfaces(ctx context.Context, interfaces []Interface, routes []Ro
 		}
 	}
 	nm := discoverNetworkManagerDevices(ctx, report)
+	wifi := discoverWiFi(ctx, report)
 	for index := range interfaces {
 		iface := &interfaces[index]
 		for _, route := range routes {
@@ -175,9 +191,17 @@ func annotateInterfaces(ctx context.Context, interfaces []Interface, routes []Ro
 			iface.HasDefaultRoute = true
 		}
 		if item, ok := nm[iface.Name]; ok {
+			iface.Kind = item.kind
 			iface.ManagedBy = "NetworkManager"
 			if item.connection != "" && item.connection != "--" {
 				iface.ConnectionName = item.connection
+			}
+		}
+		if item, ok := wifi[iface.Name]; ok {
+			copy := item
+			iface.WiFi = &copy
+			if iface.Kind == "" {
+				iface.Kind = "wifi"
 			}
 		}
 		iface.CandidateLAN, iface.CandidateReason = lanCandidate(*iface, wan)
@@ -208,6 +232,157 @@ func discoverNetworkManagerDevices(ctx context.Context, report *Report) map[stri
 	return result
 }
 
+func discoverWiFi(ctx context.Context, report *Report) map[string]WiFi {
+	iw := commandPath(report, "iw")
+	report.ToolAvailability["iw"] = iw != ""
+	if iw == "" {
+		return nil
+	}
+
+	devOutput, err := exec.CommandContext(ctx, iw, "dev").Output()
+	if err != nil {
+		report.Warnings = append(report.Warnings, "iw dev failed: "+err.Error())
+		return nil
+	}
+	listOutput, err := exec.CommandContext(ctx, iw, "list").Output()
+	if err != nil {
+		report.Warnings = append(report.Warnings, "iw list failed: "+err.Error())
+		return nil
+	}
+
+	phyCaps := parseWiFiCapabilities(string(listOutput))
+	result := map[string]WiFi{}
+	currentPhy := ""
+	currentIface := ""
+	scanner := bufio.NewScanner(strings.NewReader(string(devOutput)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		switch {
+		case strings.HasPrefix(line, "phy#"):
+			currentPhy = "phy" + strings.TrimPrefix(line, "phy#")
+		case strings.HasPrefix(line, "Interface "):
+			currentIface = strings.TrimSpace(strings.TrimPrefix(line, "Interface "))
+			item := phyCaps[currentPhy]
+			item.Phy = currentPhy
+			result[currentIface] = item
+		case currentIface != "" && strings.HasPrefix(line, "type "):
+			item := result[currentIface]
+			item.CurrentMode = strings.TrimSpace(strings.TrimPrefix(line, "type "))
+			result[currentIface] = item
+		case currentIface != "" && strings.HasPrefix(line, "ssid "):
+			item := result[currentIface]
+			item.CurrentSSID = strings.TrimSpace(strings.TrimPrefix(line, "ssid "))
+			result[currentIface] = item
+		case currentIface != "" && strings.HasPrefix(line, "channel "):
+			item := result[currentIface]
+			item.CurrentChannel = strings.TrimSpace(strings.TrimPrefix(line, "channel "))
+			result[currentIface] = item
+		}
+	}
+	return result
+}
+
+func parseWiFiCapabilities(raw string) map[string]WiFi {
+	result := map[string]WiFi{}
+	currentPhy := ""
+	section := ""
+	currentBand := ""
+	lastConcurrencyIndex := -1
+	scanner := bufio.NewScanner(strings.NewReader(raw))
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(trimmed, "Wiphy "):
+			currentPhy = strings.TrimSpace(strings.TrimPrefix(trimmed, "Wiphy "))
+			if _, ok := result[currentPhy]; !ok {
+				result[currentPhy] = WiFi{Phy: currentPhy}
+			}
+			section = ""
+			currentBand = ""
+		case currentPhy == "":
+			continue
+		case strings.HasPrefix(trimmed, "Supported interface modes:"):
+			section = "modes"
+			lastConcurrencyIndex = -1
+		case strings.HasPrefix(trimmed, "Band "):
+			section = "band"
+			lastConcurrencyIndex = -1
+			currentBand = strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(trimmed, "Band ")), ":")
+			item := result[currentPhy]
+			item.Bands = appendUnique(item.Bands, currentBand)
+			result[currentPhy] = item
+		case strings.HasPrefix(trimmed, "Frequencies:"):
+			section = "frequencies"
+			lastConcurrencyIndex = -1
+		case strings.HasPrefix(trimmed, "valid interface combinations:"):
+			section = "concurrency"
+			lastConcurrencyIndex = -1
+		case strings.HasPrefix(trimmed, "Supported commands:") ||
+			strings.HasPrefix(trimmed, "Supported TX frame types:") ||
+			strings.HasPrefix(trimmed, "Supported RX frame types:") ||
+			strings.HasPrefix(trimmed, "Supported extended features:") ||
+			strings.HasPrefix(trimmed, "HT Capability overrides:") ||
+			strings.HasPrefix(trimmed, "Device supports ") ||
+			strings.HasPrefix(trimmed, "Driver supports ") ||
+			strings.HasPrefix(trimmed, "P2P GO supports ") ||
+			strings.HasPrefix(trimmed, "max # scan plans:"):
+			section = ""
+			lastConcurrencyIndex = -1
+		case section == "modes" && strings.HasPrefix(trimmed, "*"):
+			mode := strings.TrimSpace(strings.TrimPrefix(trimmed, "*"))
+			item := result[currentPhy]
+			item.SupportedInterfaceModes = appendUnique(item.SupportedInterfaceModes, mode)
+			if mode == "AP" {
+				item.APModeSupported = true
+			}
+			result[currentPhy] = item
+		case section == "frequencies" && strings.HasPrefix(trimmed, "*"):
+			item := result[currentPhy]
+			channel := currentBand + " " + strings.TrimSpace(strings.TrimPrefix(trimmed, "*"))
+			item.Channels = append(item.Channels, channel)
+			if strings.Contains(channel, "no IR") {
+				item.Notes = appendUnique(item.Notes, "Some channels are marked no IR and may not be usable for initiating AP operation")
+			}
+			if strings.Contains(channel, "radar detection") {
+				item.Notes = appendUnique(item.Notes, "DFS channels require radar detection support and careful country/channel configuration")
+			}
+			result[currentPhy] = item
+		case section == "concurrency" && strings.HasPrefix(trimmed, "*"):
+			item := result[currentPhy]
+			item.Concurrency = append(item.Concurrency, strings.TrimSpace(strings.TrimPrefix(trimmed, "*")))
+			lastConcurrencyIndex = len(item.Concurrency) - 1
+			item = annotateWiFiConcurrency(item, item.Concurrency[lastConcurrencyIndex])
+			result[currentPhy] = item
+		case section == "concurrency" && lastConcurrencyIndex >= 0 && trimmed != "":
+			item := result[currentPhy]
+			item.Concurrency[lastConcurrencyIndex] += " " + trimmed
+			item = annotateWiFiConcurrency(item, item.Concurrency[lastConcurrencyIndex])
+			result[currentPhy] = item
+		}
+	}
+	return result
+}
+
+func annotateWiFiConcurrency(item WiFi, combination string) WiFi {
+	if strings.Contains(combination, "#{ AP,") && strings.Contains(combination, "#channels <= 1") {
+		item.Notes = appendUnique(item.Notes, "AP plus managed/P2P concurrency is limited to one channel")
+	}
+	return item
+}
+
+func appendUnique(values []string, value string) []string {
+	if value == "" {
+		return values
+	}
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
 func lanCandidate(iface Interface, wan string) (bool, string) {
 	switch {
 	case iface.Name == "":
@@ -220,8 +395,11 @@ func lanCandidate(iface Interface, wan string) (bool, string) {
 		return false, "Docker or virtual interface"
 	case iface.Master != "":
 		return false, "interface is already enslaved to " + iface.Master
-	case strings.HasPrefix(iface.Name, "wlp") || strings.HasPrefix(iface.Name, "wl"):
-		return false, "Wi-Fi is testing/fallback only; prefer dedicated Ethernet"
+	case isWiFiInterface(iface):
+		if iface.WiFi != nil && iface.WiFi.APModeSupported {
+			return true, "Wi-Fi AP capable; usable as monitored LAN after disconnecting current managed Wi-Fi client state"
+		}
+		return false, "Wi-Fi AP mode was not confirmed by iw"
 	case iface.HasDefaultRoute:
 		return false, "interface already has a default route"
 	case len(iface.IPv4Addresses) > 0:
@@ -235,6 +413,13 @@ func lanCandidate(iface Interface, wan string) (bool, string) {
 	default:
 		return true, "dedicated Ethernet candidate for monitored LAN"
 	}
+}
+
+func isWiFiInterface(iface Interface) bool {
+	return iface.Kind == "wifi" ||
+		strings.HasPrefix(iface.Name, "wlp") ||
+		strings.HasPrefix(iface.Name, "wl") ||
+		strings.HasPrefix(iface.Name, "wifi")
 }
 
 func discoverRoutes(ctx context.Context, report *Report) []Route {

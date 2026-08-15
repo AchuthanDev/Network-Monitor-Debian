@@ -37,7 +37,7 @@ func Evaluate(cfg gatewayconfig.Config, discovered discovery.Report) Report {
 	lan := cfg.Gateway.LANInterface
 
 	report.Checks = append(report.Checks, checkInterface("wan_interface", wan, discovered, "No WAN/default route interface detected"))
-	report.Checks = append(report.Checks, checkInterface("lan_interface", lan, discovered, "No dedicated LAN interface selected"))
+	report.Checks = append(report.Checks, checkInterface("lan_interface", lan, discovered, "No monitored LAN interface selected"))
 	report.Checks = append(report.Checks, checkLANPhysicalState(cfg, lan, discovered)...)
 	if wan != "" && lan != "" && wan == lan {
 		report.Checks = append(report.Checks, Check{Name: "wan_lan_separation", Status: StatusFail, Reason: "WAN and monitored LAN interfaces must be different"})
@@ -97,6 +97,9 @@ func checkLANPhysicalState(cfg gatewayconfig.Config, lan string, discovered disc
 		if iface.Name != lan {
 			continue
 		}
+		if isWiFiAPLAN(iface) {
+			return checkWiFiAPLANPhysicalState(iface)
+		}
 		checks := []Check{}
 		if iface.HasDefaultRoute {
 			checks = append(checks, Check{Name: "lan_no_default_route", Status: StatusFail, Reason: "Selected LAN interface already has a default route"})
@@ -146,6 +149,49 @@ func checkLANPhysicalState(cfg gatewayconfig.Config, lan string, discovered disc
 		{Name: "lan_full_duplex", Status: StatusFail, Reason: "Selected LAN interface was not found"},
 		{Name: "lan_bridge_bond_membership", Status: StatusFail, Reason: "Selected LAN interface was not found"},
 	}
+}
+
+func checkWiFiAPLANPhysicalState(iface discovery.Interface) []Check {
+	checks := []Check{}
+	if iface.HasDefaultRoute {
+		checks = append(checks, Check{Name: "lan_no_default_route", Status: StatusWarning, Reason: "Selected Wi-Fi interface currently has a default route; future AP apply must remove the managed-client route and preserve WAN/SSH on Ethernet"})
+	} else {
+		checks = append(checks, Check{Name: "lan_no_default_route", Status: StatusPass})
+	}
+	if iface.OperState == "up" {
+		checks = append(checks, Check{Name: "lan_link_up", Status: StatusPass, Reason: "Wi-Fi radio is present and up"})
+	} else {
+		checks = append(checks, Check{Name: "lan_link_up", Status: StatusWarning, Reason: "Wi-Fi radio is not currently up; AP activation must bring it up"})
+	}
+	checks = append(checks, Check{Name: "lan_link_speed", Status: StatusWarning, Reason: "Wi-Fi AP throughput depends on channel, clients, and signal; wired 1 Gbps check is not applicable"})
+	checks = append(checks, Check{Name: "lan_full_duplex", Status: StatusPass, Reason: "Wi-Fi is a shared radio medium; wired duplex check is not applicable"})
+	if iface.Master == "" {
+		checks = append(checks, Check{Name: "lan_bridge_bond_membership", Status: StatusPass})
+	} else {
+		checks = append(checks, Check{Name: "lan_bridge_bond_membership", Status: StatusFail, Reason: "Selected Wi-Fi interface is already enslaved to " + iface.Master})
+	}
+	if iface.WiFi != nil && iface.WiFi.APModeSupported {
+		checks = append(checks, Check{Name: "wifi_ap_capability", Status: StatusPass, Reason: "iw reports AP mode support on " + valueOr(iface.WiFi.Phy, iface.Name)})
+	} else {
+		checks = append(checks, Check{Name: "wifi_ap_capability", Status: StatusFail, Reason: "iw did not confirm AP mode support"})
+	}
+	if iface.WiFi != nil && iface.WiFi.CurrentMode == "managed" {
+		checks = append(checks, Check{Name: "wifi_current_mode", Status: StatusWarning, Reason: "Selected Wi-Fi interface is currently connected as a client; future AP apply must disconnect the managed Wi-Fi connection"})
+	} else {
+		checks = append(checks, Check{Name: "wifi_current_mode", Status: StatusPass})
+	}
+	if iface.CandidateLAN {
+		checks = append(checks, Check{Name: "lan_candidate", Status: StatusPass, Reason: iface.CandidateReason})
+	} else {
+		checks = append(checks, Check{Name: "lan_candidate", Status: StatusWarning, Reason: iface.CandidateReason})
+	}
+	return checks
+}
+
+func isWiFiAPLAN(iface discovery.Interface) bool {
+	return iface.WiFi != nil ||
+		strings.HasPrefix(iface.Name, "wlp") ||
+		strings.HasPrefix(iface.Name, "wl")
 }
 
 func checkSSHPreservation(wan string, lan string, discovered discovery.Report) Check {
@@ -286,4 +332,11 @@ func interfaceHasIP(discovered discovery.Report, ifaceName string, ip string) bo
 		}
 	}
 	return false
+}
+
+func valueOr(value string, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
 }

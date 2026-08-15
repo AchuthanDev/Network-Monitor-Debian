@@ -82,7 +82,7 @@ func TestGatewayWizardDisablesApplyWithoutLANInterface(t *testing.T) {
 	if !strings.Contains(body, `"apply_ready":false`) {
 		t.Fatalf("wizard should disable apply without dedicated LAN, got %s", body)
 	}
-	if !strings.Contains(body, "Dedicated LAN interface") {
+	if !strings.Contains(body, "Monitored LAN interface") {
 		t.Fatalf("wizard should mention LAN selection, got %s", body)
 	}
 }

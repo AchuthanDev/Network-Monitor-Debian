@@ -43,8 +43,9 @@ DHCP:
 
 nftables:
 
-- Host command `nft` is not installed: `nft: command not found`.
-- This is a hard prerequisite before live gateway activation. The software can generate rules now, but live apply must validate `nft --check` on the host first.
+- Host command path: `/usr/sbin/nft`
+- Version: `nftables v1.1.3`
+- This remains a hard prerequisite before live gateway activation. Live apply must validate `nft --check` on the host first.
 
 Forwarding:
 
@@ -87,20 +88,20 @@ Tenda HG7 / existing router
        |
 Debian enp0s31f6
   existing address, keep SSH reachable from 192.168.1.0/24
-Debian USB Gigabit Ethernet adapter
-  dynamic interface name, for example enx... or enp...
+Debian monitored LAN interface
+  USB Ethernet, or AP-capable wlp1s0 for Wi-Fi AP test mode
   192.168.50.1/24
        |
        | monitored LAN 192.168.50.0/24
        |
-External Wi-Fi AP / switch
+External Wi-Fi AP / switch, or wlp1s0 AP test network
        |
 Phones, TVs, laptops, desktops, IoT
 ```
 
-Use a dedicated USB Gigabit Ethernet adapter plus an external AP/switch for production. Do not reuse `enp0s31f6` for both WAN and LAN.
+Use a dedicated USB Gigabit Ethernet adapter plus an external AP/switch for the most stable high-throughput production deployment. Do not reuse `enp0s31f6` for both WAN and LAN.
 
-`wlp1s0` uses the Intel 8260 chipset with the `iwlwifi` driver. The `iw` tool is not installed, so AP mode support was not confirmed. Treat Wi-Fi AP mode as optional/testing only until `iw list` confirms `AP` under supported interface modes.
+`wlp1s0` uses the Intel 8260 chipset with the `iwlwifi` driver. `iw list` confirms `AP` support, so `wlp1s0` is supported as a monitored Wi-Fi AP test topology. AP plus managed/P2P concurrency is limited to one channel; the project should treat `wlp1s0` as a dedicated AP during tests rather than trying to keep it connected to the HG7 Wi-Fi.
 
 ## Proposed Addressing
 
@@ -126,7 +127,7 @@ Example command:
 go run ./apps/gatewayctl/cmd/network-monitor-gateway plan \
   --mode gateway \
   --wan enp0s31f6 \
-  --lan '<SECOND_INTERFACE>' \
+  --lan wlp1s0 \
   --lan-cidr 192.168.50.0/24 \
   --gateway-ip 192.168.50.1 \
   --dhcp \
@@ -191,7 +192,7 @@ Use NetworkManager because it currently owns `enp0s31f6` and `wlp1s0`.
 
 Planned persistent components:
 
-- NetworkManager connection for the new LAN interface with static `192.168.50.1/24`.
+- NetworkManager-compatible ownership for the monitored LAN interface with static `192.168.50.1/24`; for `wlp1s0`, AP mode should be provided by hostapd, not NetworkManager shared/hotspot NAT.
 - sysctl drop-in for IPv4 forwarding.
 - nftables rules loaded from a project-owned file containing only `inet network_monitor_gateway`.
 - dedicated DHCP-only dnsmasq service bound to the monitored LAN interface with `port=0`.
