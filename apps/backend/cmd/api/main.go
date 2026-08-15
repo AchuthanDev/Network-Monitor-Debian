@@ -287,8 +287,9 @@ func writeGatewayWizard(w http.ResponseWriter, r *http.Request, cfg gatewayconfi
 			{Step: 4, Name: "DHCP", Status: statusFor(cfg.Gateway.DHCP.Enabled), Detail: cfg.Gateway.DHCP.RangeStart + "-" + cfg.Gateway.DHCP.RangeEnd},
 			{Step: 5, Name: "DNS/Pi-hole", Status: string(cfg.Gateway.DNS.Mode), Detail: "Pi-hole remains the DNS evidence source; no DNS changes are applied here"},
 			{Step: 6, Name: "nftables/NAT/accounting review", Status: "dry_run", Detail: "Generated plan only; no live rules are installed from the dashboard"},
-			{Step: 7, Name: "Connectivity safety check", Status: "pending", Detail: "Requires explicit approval and rollback timer before apply"},
-			{Step: 8, Name: "Apply", Status: statusFor(ready.Ready && lanSelected), Detail: "Disabled until dedicated LAN interface is selected", Disabled: !(ready.Ready && lanSelected)},
+			{Step: 7, Name: "Connectivity safety check", Status: statusFor(checkStatus(ready, "ssh_management_preserved") == "pass"), Detail: "SSH management must remain on the WAN-side 192.168.1.x path"},
+			{Step: 8, Name: "Rollback safety", Status: statusFor(checkStatus(ready, "rollback_plan_available") == "pass" && checkStatus(ready, "automatic_rollback_ready") == "pass"), Detail: "Future live apply requires a rollback plan and 120-second confirmation timer"},
+			{Step: 9, Name: "Apply", Status: statusFor(ready.Ready && lanSelected), Detail: "Disabled until dedicated LAN interface is selected and all required checks pass", Disabled: !(ready.Ready && lanSelected)},
 		},
 	}
 	if !lanSelected {
@@ -577,6 +578,15 @@ func statusFor(ok bool) string {
 		return "ready"
 	}
 	return "blocked"
+}
+
+func checkStatus(report readiness.Report, name string) string {
+	for _, check := range report.Checks {
+		if check.Name == name {
+			return string(check.Status)
+		}
+	}
+	return ""
 }
 
 func valueOr(value string, fallback string) string {

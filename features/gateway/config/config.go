@@ -43,6 +43,7 @@ type GatewayConfig struct {
 	LANInterface string     `json:"lan_interface"`
 	LANCIDR      string     `json:"lan_cidr"`
 	GatewayIP    string     `json:"gateway_ip"`
+	AllowSlowLAN bool       `json:"allow_slow_lan"`
 	DHCP         DHCPConfig `json:"dhcp"`
 	DNS          DNSConfig  `json:"dns"`
 }
@@ -106,6 +107,9 @@ func LoadFromEnv() Config {
 	}
 	if value := os.Getenv("NETWORK_MONITOR_GATEWAY_IP"); value != "" {
 		cfg.Gateway.GatewayIP = value
+	}
+	if value := os.Getenv("NETWORK_MONITOR_GATEWAY_ALLOW_SLOW_LAN"); value == "true" {
+		cfg.Gateway.AllowSlowLAN = true
 	}
 	if value := os.Getenv("NETWORK_MONITOR_GATEWAY_DHCP_ENABLED"); value == "true" {
 		cfg.Gateway.DHCP.Enabled = true

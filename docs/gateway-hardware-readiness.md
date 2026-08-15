@@ -46,7 +46,7 @@ Once `nft` is installed, review and record:
 
 - Docker-created tables/chains
 - host firewall tables/chains
-- any existing project-owned table named `network_monitor_gateway`
+- any existing project-owned table named `network_monitor`
 - NAT/postrouting chains
 - forward chains
 - default policies
@@ -54,7 +54,7 @@ Once `nft` is installed, review and record:
 Expected project design remains isolated:
 
 ```text
-table inet network_monitor_gateway
+table inet network_monitor
   chain forward_prenat_account
   chain gateway_forward
   chain wan_nat
@@ -112,7 +112,10 @@ The external AP must:
 - run in access point/bridge mode only
 - not perform NAT
 - not run DHCP
+- not run a second firewall/router mode for client traffic
 - not use `192.168.1.0/24` on the monitored client side
+- use a static management IP inside the monitored LAN, for example `192.168.50.2`
+- hand client default gateway and DNS authority to Debian at `192.168.50.1`
 
 Debian will eventually be the gateway and DHCP authority for `192.168.50.0/24`, but only after explicit approval.
 
@@ -126,8 +129,11 @@ Discovery now reports:
 - link state
 - carrier
 - negotiated speed
+- duplex
+- bridge/bond master, if the interface is enslaved
 - IPv4 addresses
 - IPv6 addresses
+- per-interface routes
 - default route ownership
 - NetworkManager connection ownership
 - monitored-LAN candidate status and reason
@@ -147,7 +153,10 @@ When a second NIC appears, readiness should require:
 
 - WAN and LAN are different interfaces
 - LAN has link up
+- LAN negotiates `1000 Mb/s` or faster unless `NETWORK_MONITOR_GATEWAY_ALLOW_SLOW_LAN=true` is explicitly set
+- LAN is full duplex
 - LAN has no default route
+- LAN is not already part of another bridge or bond
 - LAN is not Docker/bridge/veth/loopback
 - LAN is not the management Wi-Fi fallback
 - LAN subnet does not overlap current WAN LAN
@@ -164,6 +173,38 @@ LAN subnet: 192.168.50.0/24
 Gateway: 192.168.50.1
 DHCP: 192.168.50.100-192.168.50.220
 ```
+
+## Dry-Run Operator Commands
+
+The preferred command shape for future live preparation is:
+
+```bash
+network-monitor gateway plan \
+  --mode gateway \
+  --wan enp0s31f6 \
+  --lan <SECOND_INTERFACE> \
+  --lan-cidr 192.168.50.0/24 \
+  --gateway-ip 192.168.50.1 \
+  --dhcp \
+  --dhcp-start 192.168.50.100 \
+  --dhcp-end 192.168.50.220 \
+  --dns-mode pihole
+```
+
+`network-monitor gateway apply` and `network-monitor gateway rollback` remain dry-run-only on the current branch unless an explicit live activation phase is approved.
+
+## Accounting Validation
+
+Namespace tests use the same nftables generator as the production dry-run plan. The stress test records:
+
+- expected payload bytes
+- measured Internet bytes
+- measured-minus-payload difference
+- bidirectional overhead percentage
+- download-side payload overhead percentage
+- LAN-only bytes
+
+Measured bytes are expected to be slightly above payload bytes because accounting includes TCP/IP framing, HTTP headers, connection setup/teardown, client ACK/control upload traffic, and any retransmissions at the selected measurement boundary. This is legitimate transport overhead, not a quota-classification error. LAN-only traffic must remain `0` Internet bytes.
 
 ## Activation Checklist
 

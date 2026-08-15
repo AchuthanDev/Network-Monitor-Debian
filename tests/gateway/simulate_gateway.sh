@@ -71,6 +71,24 @@ go run ./apps/gatewayctl/cmd/network-monitor-gateway nftables \
   >/tmp/network-monitor-gateway.nft
 ip netns exec nm-gw nft -f /tmp/network-monitor-gateway.nft
 
+ip netns exec nm-gw nft -f /tmp/network-monitor-gateway.nft
+ip netns exec nm-gw nft delete table inet network_monitor
+if ip netns exec nm-gw nft list table inet network_monitor >/dev/null 2>&1; then
+  echo "FAIL: rollback removal left project-owned nftables table behind" >&2
+  exit 1
+fi
+
+ip netns exec nm-gw nft -f /tmp/network-monitor-gateway.nft
+( sleep 1; ip netns exec nm-gw nft delete table inet network_monitor ) &
+SAFETY_PID="$!"
+wait "$SAFETY_PID"
+if ip netns exec nm-gw nft list table inet network_monitor >/dev/null 2>&1; then
+  echo "FAIL: safety timer rollback left project-owned nftables table behind" >&2
+  exit 1
+fi
+
+ip netns exec nm-gw nft -f /tmp/network-monitor-gateway.nft
+
 ip netns exec nm-wan sh -c "mkdir -p /tmp/www && dd if=/dev/zero of=/tmp/www/body.bin bs=1M count=$SIM_A_MB >/dev/null 2>&1 && printf 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nConnection: close\r\n\r\n' $((SIM_A_MB * 1024 * 1024)) > /tmp/www/response.http && cat /tmp/www/body.bin >> /tmp/www/response.http"
 ip netns exec nm-wan socat TCP-LISTEN:8080,bind=198.51.100.2,reuseaddr,fork SYSTEM:'cat /tmp/www/response.http' >/tmp/nm-socat.log 2>&1 &
 SERVER_PID="$!"
@@ -81,7 +99,7 @@ ip netns exec nm-wan ss -ltn | grep -q ':8080' || {
 }
 
 counter_bytes() {
-  ip netns exec nm-gw nft list counter inet network_monitor_gateway "$1" | awk '{ for (i = 1; i <= NF; i++) if ($i == "bytes") print $(i + 1) }'
+  ip netns exec nm-gw nft list counter inet network_monitor "$1" | awk '{ for (i = 1; i <= NF; i++) if ($i == "bytes") print $(i + 1) }'
 }
 
 assert_zero() {
@@ -150,15 +168,30 @@ percent_over_payload() {
   awk "BEGIN { printf \"%.3f\", (($measured - $payload) / $payload) * 100 }"
 }
 
+difference_bytes() {
+  measured="$1"
+  payload="$2"
+  echo $((measured - payload))
+}
+
 echo "PASS: isolated gateway simulation"
+echo "nftables_table=inet network_monitor"
+echo "rollback_removal=pass"
+echo "safety_timer_rollback=pass"
 echo "client_a_internet_bytes=$client_a"
 echo "client_a_download_bytes=$client_a_down"
 echo "client_a_upload_bytes=$client_a_up"
 echo "client_a_payload_bytes=$payload_a"
-echo "client_a_over_payload_percent=$(percent_over_payload "$client_a" "$payload_a")"
+echo "client_a_internet_difference_bytes=$(difference_bytes "$client_a" "$payload_a")"
+echo "client_a_download_difference_bytes=$(difference_bytes "$client_a_down" "$payload_a")"
+echo "client_a_bidirectional_over_payload_percent=$(percent_over_payload "$client_a" "$payload_a")"
+echo "client_a_download_over_payload_percent=$(percent_over_payload "$client_a_down" "$payload_a")"
 echo "client_b_internet_bytes=$client_b"
 echo "client_b_download_bytes=$client_b_down"
 echo "client_b_upload_bytes=$client_b_up"
 echo "client_b_payload_bytes=$payload_b"
-echo "client_b_over_payload_percent=$(percent_over_payload "$client_b" "$payload_b")"
+echo "client_b_internet_difference_bytes=$(difference_bytes "$client_b" "$payload_b")"
+echo "client_b_download_difference_bytes=$(difference_bytes "$client_b_down" "$payload_b")"
+echo "client_b_bidirectional_over_payload_percent=$(percent_over_payload "$client_b" "$payload_b")"
+echo "client_b_download_over_payload_percent=$(percent_over_payload "$client_b_down" "$payload_b")"
 echo "client_a_lan_bytes=$lan_after"

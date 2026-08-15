@@ -139,7 +139,7 @@ Planned changes only:
 
 - Enable IPv4 forwarding, preserving the previous value for rollback.
 - Assign `192.168.50.1/24` to the selected monitored LAN interface.
-- Create isolated nftables table `inet network_monitor_gateway`.
+- Create isolated nftables table `inet network_monitor`.
 - Start one DHCP service bound only to the monitored LAN interface.
 - Keep management access through `enp0s31f6` on `192.168.1.0/24`.
 
@@ -148,7 +148,7 @@ Planned changes only:
 The generated table is project-owned:
 
 ```text
-table inet network_monitor_gateway
+table inet network_monitor
 ```
 
 Chains:
@@ -193,7 +193,7 @@ Planned persistent components:
 
 - NetworkManager connection for the new LAN interface with static `192.168.50.1/24`.
 - sysctl drop-in for IPv4 forwarding.
-- nftables rules loaded from a project-owned file containing only `inet network_monitor_gateway`.
+- nftables rules loaded from a project-owned file containing only `inet network_monitor`.
 - dedicated dnsmasq service bound to the monitored LAN interface.
 - existing Docker services unchanged.
 - network-monitor collector/API/web/db startup order unchanged.
@@ -203,7 +203,7 @@ Planned persistent components:
 Rollback must remove only project-owned gateway state:
 
 ```bash
-nft delete table inet network_monitor_gateway
+nft delete table inet network_monitor
 systemctl stop network-monitor-dnsmasq.service
 ip addr del 192.168.50.1/24 dev <SECOND_INTERFACE>
 sysctl -w net.ipv4.ip_forward=<previous-value>

@@ -31,7 +31,7 @@ lint: go-test
 build: go-build frontend-build
 
 go-build:
-	$(GO_DOCKER) sh -eu -c 'cd apps/backend && go build -o /tmp/network-monitor-api ./cmd/api && cd ../collector && go build -o /tmp/network-monitor-collector ./cmd/collector && cd ../gatewayctl && go build -o /tmp/network-monitor-gateway ./cmd/network-monitor-gateway'
+	$(GO_DOCKER) sh -eu -c 'cd apps/backend && go build -o /tmp/network-monitor-api ./cmd/api && cd ../collector && go build -o /tmp/network-monitor-collector ./cmd/collector && cd ../gatewayctl && go build -o /tmp/network-monitor-gateway ./cmd/network-monitor-gateway && go build -o /tmp/network-monitor ./cmd/network-monitor'
 
 frontend-build:
 	cd apps/frontend && npm run build

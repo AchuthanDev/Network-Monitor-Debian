@@ -38,10 +38,13 @@ type Interface struct {
 	OperState       string   `json:"oper_state,omitempty"`
 	Carrier         string   `json:"carrier,omitempty"`
 	SpeedMbps       int      `json:"speed_mbps,omitempty"`
+	Duplex          string   `json:"duplex,omitempty"`
 	Driver          string   `json:"driver,omitempty"`
+	Master          string   `json:"master,omitempty"`
 	ManagedBy       string   `json:"managed_by,omitempty"`
 	ConnectionName  string   `json:"connection_name,omitempty"`
 	HasDefaultRoute bool     `json:"has_default_route"`
+	Routes          []Route  `json:"routes,omitempty"`
 	CandidateLAN    bool     `json:"candidate_lan"`
 	CandidateReason string   `json:"candidate_reason,omitempty"`
 }
@@ -126,7 +129,9 @@ func discoverInterfaces(report *Report) []Interface {
 			OperState:    readTrimmed("/sys/class/net/" + item.Name + "/operstate"),
 			Carrier:      readTrimmed("/sys/class/net/" + item.Name + "/carrier"),
 			SpeedMbps:    readInt("/sys/class/net/" + item.Name + "/speed"),
+			Duplex:       readTrimmed("/sys/class/net/" + item.Name + "/duplex"),
 			Driver:       driverName(item.Name),
+			Master:       linkBasename("/sys/class/net/" + item.Name + "/master"),
 		}
 		for _, address := range addresses {
 			prefix, err := netip.ParsePrefix(address.String())
@@ -160,6 +165,11 @@ func annotateInterfaces(ctx context.Context, interfaces []Interface, routes []Ro
 	nm := discoverNetworkManagerDevices(ctx, report)
 	for index := range interfaces {
 		iface := &interfaces[index]
+		for _, route := range routes {
+			if route.Interface == iface.Name {
+				iface.Routes = append(iface.Routes, route)
+			}
+		}
 		if defaults[iface.Name] {
 			iface.HasDefaultRoute = true
 		}
@@ -206,6 +216,8 @@ func lanCandidate(iface Interface, wan string) (bool, string) {
 		return false, "loopback interface"
 	case strings.HasPrefix(iface.Name, "docker") || strings.HasPrefix(iface.Name, "br-") || strings.HasPrefix(iface.Name, "veth"):
 		return false, "Docker or virtual interface"
+	case iface.Master != "":
+		return false, "interface is already enslaved to " + iface.Master
 	case strings.HasPrefix(iface.Name, "wlp") || strings.HasPrefix(iface.Name, "wl"):
 		return false, "Wi-Fi is testing/fallback only; prefer dedicated Ethernet"
 	case iface.HasDefaultRoute:
@@ -216,6 +228,8 @@ func lanCandidate(iface Interface, wan string) (bool, string) {
 		return false, "link is not up"
 	case iface.SpeedMbps > 0 && iface.SpeedMbps < 1000:
 		return false, "link speed is below 1 Gbps"
+	case iface.Duplex != "" && iface.Duplex != "full":
+		return false, "link duplex is not full"
 	default:
 		return true, "dedicated Ethernet candidate for monitored LAN"
 	}
@@ -443,6 +457,18 @@ func driverName(iface string) string {
 	if err != nil {
 		return ""
 	}
+	return basename(target)
+}
+
+func linkBasename(path string) string {
+	target, err := os.Readlink(path)
+	if err != nil {
+		return ""
+	}
+	return basename(target)
+}
+
+func basename(target string) string {
 	parts := strings.Split(strings.Trim(target, "/"), "/")
 	if len(parts) == 0 {
 		return ""
