@@ -3,6 +3,7 @@ package config
 import (
 	"net/netip"
 	"os"
+	"strconv"
 
 	"github.com/AchuthanDev/Network-Monitor-Debian/features/gateway/isp"
 )
@@ -22,6 +23,13 @@ const (
 	DNSModePiHole   DNSMode = "pihole"
 )
 
+type LANMode string
+
+const (
+	LANModeEthernet LANMode = "ethernet"
+	LANModeWiFiAP   LANMode = "wifi_ap"
+)
+
 type Config struct {
 	Mode     Mode          `json:"mode"`
 	Timezone string        `json:"timezone"`
@@ -39,13 +47,24 @@ type TimeWindow struct {
 }
 
 type GatewayConfig struct {
-	WANInterface string     `json:"wan_interface"`
-	LANInterface string     `json:"lan_interface"`
-	LANCIDR      string     `json:"lan_cidr"`
-	GatewayIP    string     `json:"gateway_ip"`
-	AllowSlowLAN bool       `json:"allow_slow_lan"`
-	DHCP         DHCPConfig `json:"dhcp"`
-	DNS          DNSConfig  `json:"dns"`
+	WANInterface string       `json:"wan_interface"`
+	LANInterface string       `json:"lan_interface"`
+	LANMode      LANMode      `json:"lan_mode"`
+	LANCIDR      string       `json:"lan_cidr"`
+	GatewayIP    string       `json:"gateway_ip"`
+	AllowSlowLAN bool         `json:"allow_slow_lan"`
+	DHCP         DHCPConfig   `json:"dhcp"`
+	DNS          DNSConfig    `json:"dns"`
+	WiFiAP       WiFiAPConfig `json:"wifi_ap"`
+}
+
+type WiFiAPConfig struct {
+	TestMode      bool   `json:"test_mode"`
+	SSID          string `json:"ssid"`
+	CountryCode   string `json:"country_code"`
+	Band          string `json:"band"`
+	Channel       int    `json:"channel"`
+	PassphraseEnv string `json:"passphrase_env"`
 }
 
 type DHCPConfig struct {
@@ -70,6 +89,7 @@ func Default() Config {
 			},
 		},
 		Gateway: GatewayConfig{
+			LANMode:   LANModeEthernet,
 			LANCIDR:   "192.168.50.0/24",
 			GatewayIP: "192.168.50.1",
 			DHCP: DHCPConfig{
@@ -78,6 +98,13 @@ func Default() Config {
 				RangeEnd:   "192.168.50.240",
 			},
 			DNS: DNSConfig{Mode: DNSModeDisabled},
+			WiFiAP: WiFiAPConfig{
+				SSID:          "NetworkMonitor-Test",
+				CountryCode:   "LK",
+				Band:          "2.4ghz",
+				Channel:       6,
+				PassphraseEnv: "NETWORK_MONITOR_AP_PASSPHRASE",
+			},
 		},
 	}
 }
@@ -102,6 +129,9 @@ func LoadFromEnv() Config {
 	if value := os.Getenv("NETWORK_MONITOR_GATEWAY_LAN_INTERFACE"); value != "" {
 		cfg.Gateway.LANInterface = value
 	}
+	if value := os.Getenv("NETWORK_MONITOR_GATEWAY_LAN_MODE"); value != "" {
+		cfg.Gateway.LANMode = LANMode(value)
+	}
 	if value := os.Getenv("NETWORK_MONITOR_GATEWAY_LAN_CIDR"); value != "" {
 		cfg.Gateway.LANCIDR = value
 	}
@@ -122,6 +152,27 @@ func LoadFromEnv() Config {
 	}
 	if value := os.Getenv("NETWORK_MONITOR_GATEWAY_DNS_MODE"); value != "" {
 		cfg.Gateway.DNS.Mode = DNSMode(value)
+	}
+	if value := os.Getenv("NETWORK_MONITOR_GATEWAY_WIFI_AP_TEST"); value == "true" {
+		cfg.Gateway.LANMode = LANModeWiFiAP
+		cfg.Gateway.WiFiAP.TestMode = true
+	}
+	if value := os.Getenv("NETWORK_MONITOR_GATEWAY_WIFI_AP_SSID"); value != "" {
+		cfg.Gateway.WiFiAP.SSID = value
+	}
+	if value := os.Getenv("NETWORK_MONITOR_GATEWAY_WIFI_AP_COUNTRY"); value != "" {
+		cfg.Gateway.WiFiAP.CountryCode = value
+	}
+	if value := os.Getenv("NETWORK_MONITOR_GATEWAY_WIFI_AP_BAND"); value != "" {
+		cfg.Gateway.WiFiAP.Band = value
+	}
+	if value := os.Getenv("NETWORK_MONITOR_GATEWAY_WIFI_AP_CHANNEL"); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil {
+			cfg.Gateway.WiFiAP.Channel = parsed
+		}
+	}
+	if value := os.Getenv("NETWORK_MONITOR_GATEWAY_WIFI_AP_PASSPHRASE_ENV"); value != "" {
+		cfg.Gateway.WiFiAP.PassphraseEnv = value
 	}
 	return cfg
 }
