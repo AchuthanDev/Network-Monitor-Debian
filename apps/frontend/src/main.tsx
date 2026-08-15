@@ -17,6 +17,7 @@ import {
   Network,
   PlugZap,
   RefreshCw,
+  Search,
   Router,
   Server,
   Settings,
@@ -153,6 +154,64 @@ type ISPUsageResponse = {
   message?: string;
 };
 
+type DestinationRow = {
+  destination_ip: string;
+  domain?: string;
+  service: string;
+  category: string;
+  confidence: string;
+  download_bytes: number;
+  upload_bytes: number;
+  connection_count: number;
+  device_count: number;
+  first_seen: string;
+  last_seen: string;
+};
+
+type ListResponse<T> = {
+  status: string;
+  message?: string;
+  data: T[];
+  generated_at: string;
+};
+
+type GatewayWizardResponse = {
+  status: string;
+  apply_ready: boolean;
+  warnings?: string[];
+  steps: Array<{
+    step: number;
+    name: string;
+    status: string;
+    detail: string;
+    disabled?: boolean;
+  }>;
+};
+
+type ClassificationCatalogResponse = {
+  status: string;
+  privacy: string[];
+  confidence: string[];
+  categories: string[];
+};
+
+type AlertPolicyResponse = {
+  status: string;
+  defaults: Array<Record<string, unknown>>;
+  dedupe: Record<string, unknown>;
+};
+
+type DailyReportResponse = {
+  status: string;
+  message?: string;
+  date: string;
+  internet_bytes: number;
+  free_night_bytes: number;
+  anytime_bytes: number;
+  unknown_bytes: number;
+  generated_at: string;
+};
+
 type EndpointState<T> = {
   data: T | null;
   error: string | null;
@@ -164,7 +223,9 @@ type SectionId =
   | "network"
   | "gateway"
   | "devices"
+  | "destinations"
   | "isp"
+  | "investigation"
   | "containers"
   | "processes"
   | "connections"
@@ -195,7 +256,9 @@ const sections: Array<{ id: SectionId; label: string; icon: React.ElementType }>
   { id: "network", label: "Network", icon: Network },
   { id: "gateway", label: "Gateway", icon: Router },
   { id: "devices", label: "Devices", icon: Smartphone },
+  { id: "destinations", label: "Destinations", icon: Globe2 },
   { id: "isp", label: "ISP Usage", icon: BarChart3 },
+  { id: "investigation", label: "Investigation", icon: Search },
   { id: "containers", label: "Containers", icon: Container },
   { id: "processes", label: "Processes", icon: Cpu },
   { id: "connections", label: "Connections", icon: PlugZap },
@@ -356,10 +419,28 @@ function useDashboardData(refreshMs: number) {
   const [gatewayReadiness, setGatewayReadiness] = useState<EndpointState<GatewayReadinessResponse>>(freshEndpoint);
   const [devices, setDevices] = useState<EndpointState<DevicesResponse>>(freshEndpoint);
   const [ispUsage, setISPUsage] = useState<EndpointState<ISPUsageResponse>>(freshEndpoint);
+  const [destinations, setDestinations] = useState<EndpointState<ListResponse<DestinationRow>>>(freshEndpoint);
+  const [gatewayWizard, setGatewayWizard] = useState<EndpointState<GatewayWizardResponse>>(freshEndpoint);
+  const [classificationCatalog, setClassificationCatalog] = useState<EndpointState<ClassificationCatalogResponse>>(freshEndpoint);
+  const [alertPolicy, setAlertPolicy] = useState<EndpointState<AlertPolicyResponse>>(freshEndpoint);
+  const [dailyReport, setDailyReport] = useState<EndpointState<DailyReportResponse>>(freshEndpoint);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
   async function load() {
-    const [dashboardResult, collectorResult, hourlyResult, gatewayDiscoveryResult, gatewayReadinessResult, devicesResult, ispUsageResult] = await Promise.all([
+    const [
+      dashboardResult,
+      collectorResult,
+      hourlyResult,
+      gatewayDiscoveryResult,
+      gatewayReadinessResult,
+      devicesResult,
+      ispUsageResult,
+      destinationsResult,
+      gatewayWizardResult,
+      classificationCatalogResult,
+      alertPolicyResult,
+      dailyReportResult,
+    ] = await Promise.all([
       fetchEndpoint<DashboardResponse>("/api/v1/dashboard"),
       fetchEndpoint<CollectorResponse>("/collector/healthz"),
       fetchEndpoint<HourlyResponse>("/api/v1/network/hourly"),
@@ -367,6 +448,11 @@ function useDashboardData(refreshMs: number) {
       fetchEndpoint<GatewayReadinessResponse>("/api/v1/gateway/readiness"),
       fetchEndpoint<DevicesResponse>("/api/v1/devices"),
       fetchEndpoint<ISPUsageResponse>("/api/v1/isp-usage"),
+      fetchEndpoint<ListResponse<DestinationRow>>("/api/v1/destinations"),
+      fetchEndpoint<GatewayWizardResponse>("/api/v1/gateway/wizard"),
+      fetchEndpoint<ClassificationCatalogResponse>("/api/v1/classification/catalog"),
+      fetchEndpoint<AlertPolicyResponse>("/api/v1/alerts/policy"),
+      fetchEndpoint<DailyReportResponse>(`/api/v1/reports/daily?date=${new Date().toISOString().slice(0, 10)}`),
     ]);
     setDashboard(dashboardResult);
     setCollector(collectorResult);
@@ -375,6 +461,11 @@ function useDashboardData(refreshMs: number) {
     setGatewayReadiness(gatewayReadinessResult);
     setDevices(devicesResult);
     setISPUsage(ispUsageResult);
+    setDestinations(destinationsResult);
+    setGatewayWizard(gatewayWizardResult);
+    setClassificationCatalog(classificationCatalogResult);
+    setAlertPolicy(alertPolicyResult);
+    setDailyReport(dailyReportResult);
     setUpdatedAt(new Date());
   }
 
@@ -384,7 +475,7 @@ function useDashboardData(refreshMs: number) {
     return () => window.clearInterval(timer);
   }, [refreshMs]);
 
-  return { dashboard, collector, hourly, gatewayDiscovery, gatewayReadiness, devices, ispUsage, updatedAt, load };
+  return { dashboard, collector, hourly, gatewayDiscovery, gatewayReadiness, devices, ispUsage, destinations, gatewayWizard, classificationCatalog, alertPolicy, dailyReport, updatedAt, load };
 }
 
 function buildAlerts(
@@ -554,9 +645,11 @@ function NetworkView({ totals, hourlyBuckets }: { totals: UsageTotals; hourlyBuc
 function GatewayView({
   discovery,
   readiness,
+  wizard,
 }: {
   discovery: EndpointState<GatewayDiscoveryResponse>;
   readiness: EndpointState<GatewayReadinessResponse>;
+  wizard: EndpointState<GatewayWizardResponse>;
 }) {
   const discovered = discovery.data?.discovery;
   const cfg = discovery.data?.config;
@@ -642,6 +735,30 @@ function GatewayView({
           <strong>Pre-NAT forward path</strong>
         </div>
       </section>
+
+      <section className="panel">
+        <PanelTitle icon={ShieldAlert} title="Activation Wizard" />
+        <div className="alerts-list">
+          {(wizard.data?.steps ?? []).length === 0 ? (
+            <EmptyState title="Wizard unavailable" body={wizard.error ?? "The gateway wizard endpoint has not returned steps yet."} />
+          ) : (
+            wizard.data?.steps.map((step) => (
+              <article className={`alert-card ${step.disabled ? "critical" : step.status === "ready" ? "info" : "warning"}`} key={step.step}>
+                <div>
+                  <span>Step {step.step}</span>
+                  <strong>{step.name}</strong>
+                  <p>{step.detail}</p>
+                </div>
+                <ClassBadge value={step.disabled ? "disabled" : step.status} />
+              </article>
+            ))
+          )}
+        </div>
+        <button className="refresh" type="button" disabled={!wizard.data?.apply_ready}>
+          <ShieldAlert size={16} />
+          Apply
+        </button>
+      </section>
     </>
   );
 }
@@ -709,6 +826,108 @@ function ISPUsageView({ usage }: { usage: EndpointState<ISPUsageResponse> }) {
           <p className="muted">Measured usage only. This is not an official ISP billing statement.</p>
         </div>
         <input className="date-input" type="date" defaultValue={new Date().toISOString().slice(0, 10)} aria-label="Report date" />
+      </section>
+    </>
+  );
+}
+
+function DestinationsView({
+  destinations,
+  catalog,
+}: {
+  destinations: EndpointState<ListResponse<DestinationRow>>;
+  catalog: EndpointState<ClassificationCatalogResponse>;
+}) {
+  const rows = destinations.data?.data ?? [];
+  return (
+    <>
+      <SectionTitle icon={Globe2} eyebrow="Destinations" title="Service and destination analytics">
+        Classification is metadata-based. DNS/SNI evidence can raise confidence, but unknown encrypted traffic remains explicitly unknown.
+      </SectionTitle>
+      <section className="grid compact">
+        <MetricCard label="Destinations" value={String(rows.length)} detail={destinations.data?.message ?? "Verified destination rows"} tone={rows.length > 0 ? "good" : "warning"} />
+        <MetricCard label="Confidence Levels" value={String(catalog.data?.confidence?.length ?? 4)} detail="high / medium / low / unknown" />
+        <MetricCard label="Privacy Boundary" value="No HTTPS decryption" detail="No payloads or client certificates" tone="good" />
+      </section>
+      <section className="panel">
+        <PanelTitle icon={Globe2} title="Top Destinations" />
+        <div className="table">
+          <div className="table-row destination-row table-head">
+            <span>Destination</span>
+            <span>Service</span>
+            <span>Category</span>
+            <span>Download</span>
+            <span>Upload</span>
+            <span>Confidence</span>
+          </div>
+          {rows.length === 0 ? (
+            <EmptyState title="No destination analytics yet" body={destinations.data?.message ?? destinations.error ?? "Gateway accounting has not written destination rows."} />
+          ) : (
+            rows.map((row) => (
+              <div className="table-row destination-row" key={`${row.destination_ip}-${row.service}-${row.category}`}>
+                <span>{row.domain || row.destination_ip}</span>
+                <span>{row.service}</span>
+                <ClassBadge value={row.category} />
+                <span>{formatBytes(row.download_bytes)}</span>
+                <span>{formatBytes(row.upload_bytes)}</span>
+                <ClassBadge value={row.confidence} />
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function InvestigationView({
+  dailyReport,
+  destinations,
+}: {
+  dailyReport: EndpointState<DailyReportResponse>;
+  destinations: EndpointState<ListResponse<DestinationRow>>;
+}) {
+  const rows = destinations.data?.data ?? [];
+  return (
+    <>
+      <SectionTitle icon={Search} eyebrow="Investigation" title="Usage investigation workflow">
+        Select a date and time range to explain measured usage by device, category, service, and destination once gateway accounting is active.
+      </SectionTitle>
+      <section className="grid compact">
+        <MetricCard label="Measured Internet" value={formatBytes(dailyReport.data?.internet_bytes ?? 0)} detail={dailyReport.data?.message ?? dailyReport.data?.date ?? "Today"} tone="accent" />
+        <MetricCard label="Free/Night" value={formatBytes(dailyReport.data?.free_night_bytes ?? 0)} detail="Configurable ISP window" tone="good" />
+        <MetricCard label="Anytime" value={formatBytes(dailyReport.data?.anytime_bytes ?? 0)} detail="Charged/anytime window" tone="warning" />
+        <MetricCard label="Unknown" value={formatBytes(dailyReport.data?.unknown_bytes ?? 0)} detail="Not silently excluded" />
+      </section>
+      <section className="panel split">
+        <div>
+          <PanelTitle icon={SlidersHorizontal} title="Range" />
+          <div className="setting-row">
+            <label htmlFor="investigation-date">Date</label>
+            <input className="date-input" id="investigation-date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} />
+          </div>
+          <div className="setting-row">
+            <label htmlFor="investigation-hour">Hour</label>
+            <select id="investigation-hour" defaultValue="14">
+              {Array.from({ length: 24 }, (_, hour) => (
+                <option value={hour} key={hour}>{`${String(hour).padStart(2, "0")}:00-${String(hour + 1).padStart(2, "0")}:00`}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <p className="muted">The backend endpoint is ready at `/api/v1/investigation/hour`; gateway device rows are required before drilldown can show real client usage.</p>
+      </section>
+      <section className="panel">
+        <PanelTitle icon={BarChart3} title="Top Evidence" />
+        <div className="bars">
+          {rows.length === 0 ? (
+            <EmptyState title="No investigation rows yet" body="Destination and category breakdowns will appear after gateway accounting writes verified records." />
+          ) : (
+            rows.slice(0, 8).map((row) => (
+              <TrafficBar key={`${row.destination_ip}-${row.service}`} label={`${row.service} / ${row.category}`} bytes={row.download_bytes + row.upload_bytes} max={Math.max(...rows.map((item) => item.download_bytes + item.upload_bytes), 0)} />
+            ))
+          )}
+        </div>
       </section>
     </>
   );
@@ -816,12 +1035,17 @@ function ServerView({
   );
 }
 
-function AlertsView({ alerts }: { alerts: AlertItem[] }) {
+function AlertsView({ alerts, policy }: { alerts: AlertItem[]; policy: EndpointState<AlertPolicyResponse> }) {
   return (
     <>
       <SectionTitle icon={Bell} eyebrow="Alerts" title="Active monitoring conditions">
-        Alerts are derived from live endpoint and collector states. The database alerts table is present, but alert rules are not yet persisted.
+        Alerts include endpoint health plus the prepared category-aware device thresholds. Unknown traffic has its own rule so classification failures are not hidden.
       </SectionTitle>
+      <section className="grid compact">
+        <MetricCard label="Default Threshold" value="2 GB/day" detail="Anytime, social/video, and unknown rules" tone="warning" />
+        <MetricCard label="Deduplication" value="Enabled" detail="2 GB / 5 GB / 10 GB tiers or cooldown" tone="good" />
+        <MetricCard label="Rules" value={String(policy.data?.defaults?.length ?? 0)} detail={policy.error ?? "Configurable alert defaults"} />
+      </section>
       <section className="alerts-list">
         {alerts.map((alert) => (
           <article className={`alert-card ${alert.severity}`} key={alert.id}>
@@ -934,7 +1158,7 @@ function SettingsView({
 function App() {
   const [activeSection, setActiveSection] = useState<SectionId>("overview");
   const [refreshMs, setRefreshMs] = useState(5000);
-  const { dashboard, collector, hourly, gatewayDiscovery, gatewayReadiness, devices, ispUsage, updatedAt, load } = useDashboardData(refreshMs);
+  const { dashboard, collector, hourly, gatewayDiscovery, gatewayReadiness, devices, ispUsage, destinations, gatewayWizard, classificationCatalog, alertPolicy, dailyReport, updatedAt, load } = useDashboardData(refreshMs);
 
   const totals = dashboard.data?.today ?? emptyTotals;
   const hourlyBuckets = hourly.data?.data ?? [];
@@ -973,14 +1197,16 @@ function App() {
           <OverviewView totals={totals} collector={collector.data} hourlyBuckets={hourlyBuckets} updatedAt={updatedAt} onRefresh={() => void load()} />
         ) : null}
         {activeSection === "network" ? <NetworkView totals={totals} hourlyBuckets={hourlyBuckets} /> : null}
-        {activeSection === "gateway" ? <GatewayView discovery={gatewayDiscovery} readiness={gatewayReadiness} /> : null}
+        {activeSection === "gateway" ? <GatewayView discovery={gatewayDiscovery} readiness={gatewayReadiness} wizard={gatewayWizard} /> : null}
         {activeSection === "devices" ? <DevicesView devices={devices} /> : null}
+        {activeSection === "destinations" ? <DestinationsView destinations={destinations} catalog={classificationCatalog} /> : null}
         {activeSection === "isp" ? <ISPUsageView usage={ispUsage} /> : null}
+        {activeSection === "investigation" ? <InvestigationView dailyReport={dailyReport} destinations={destinations} /> : null}
         {activeSection === "containers" ? <ContainersView totals={totals} /> : null}
         {activeSection === "processes" ? <ProcessesView /> : null}
         {activeSection === "connections" ? <ConnectionsView totals={totals} hourlyBuckets={hourlyBuckets} /> : null}
         {activeSection === "server" ? <ServerView dashboard={dashboard} collector={collector} hourly={hourly} /> : null}
-        {activeSection === "alerts" ? <AlertsView alerts={alerts} /> : null}
+        {activeSection === "alerts" ? <AlertsView alerts={alerts} policy={alertPolicy} /> : null}
         {activeSection === "reports" ? <ReportsView totals={totals} hourlyBuckets={hourlyBuckets} generatedAt={dashboard.data?.generated_at} /> : null}
         {activeSection === "settings" ? <SettingsView refreshMs={refreshMs} setRefreshMs={setRefreshMs} /> : null}
       </section>
