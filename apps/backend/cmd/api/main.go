@@ -73,20 +73,37 @@ type reportResponse struct {
 }
 
 type dailyReportResponse struct {
-	Status                 string  `json:"status"`
-	Message                string  `json:"message,omitempty"`
-	Date                   string  `json:"date"`
-	Internet               uint64  `json:"internet_bytes"`
-	Free                   uint64  `json:"free_night_bytes"`
-	Anytime                uint64  `json:"anytime_bytes"`
-	ClassifiedBytes        uint64  `json:"classified_bytes"`
-	UnknownBytes           uint64  `json:"unknown_bytes"`
-	ClassificationCoverage float64 `json:"classification_coverage"`
-	TopService             string  `json:"top_service,omitempty"`
-	TopCategory            string  `json:"top_category,omitempty"`
-	PeakHour               string  `json:"peak_hour,omitempty"`
-	Alerts                 uint64  `json:"alerts"`
-	GeneratedAt            string  `json:"generated_at"`
+	Status                 string              `json:"status"`
+	Message                string              `json:"message,omitempty"`
+	Date                   string              `json:"date"`
+	Internet               uint64              `json:"internet_bytes"`
+	Free                   uint64              `json:"free_night_bytes"`
+	Anytime                uint64              `json:"anytime_bytes"`
+	ClassifiedBytes        uint64              `json:"classified_bytes"`
+	UnknownBytes           uint64              `json:"unknown_bytes"`
+	ClassificationCoverage float64             `json:"classification_coverage"`
+	TopService             string              `json:"top_service,omitempty"`
+	TopCategory            string              `json:"top_category,omitempty"`
+	PeakHour               string              `json:"peak_hour,omitempty"`
+	Alerts                 uint64              `json:"alerts"`
+	Measurement            measurementMetadata `json:"measurement"`
+	ISPComparison          *ispComparison      `json:"isp_comparison,omitempty"`
+	GeneratedAt            string              `json:"generated_at"`
+}
+
+type measurementMetadata struct {
+	Source         string `json:"source"`
+	Scope          string `json:"scope"`
+	Classification string `json:"classification"`
+	Precision      string `json:"precision"`
+}
+
+type ispComparison struct {
+	Date              string  `json:"date"`
+	MonitorBytes      uint64  `json:"monitor_measured_bytes"`
+	ISPReportedBytes  uint64  `json:"isp_reported_bytes"`
+	DifferenceBytes   int64   `json:"difference_bytes"`
+	DifferencePercent float64 `json:"difference_percent"`
 }
 
 type wizardResponse struct {
@@ -450,9 +467,15 @@ func writeDailyReport(w http.ResponseWriter, r *http.Request, store *db.Store, c
 		dateValue = time.Now().UTC().Format("2006-01-02")
 	}
 	response := dailyReportResponse{
-		Status:      "unavailable",
-		Message:     "daily report uses server metrics until gateway device accounting is active",
-		Date:        dateValue,
+		Status:  "unavailable",
+		Message: "daily report uses server metrics until gateway device accounting is active",
+		Date:    dateValue,
+		Measurement: measurementMetadata{
+			Source:         "nftables host accounting; gateway pre-NAT accounting when gateway mode is active",
+			Scope:          "Debian server while gateway mode is disabled; monitored LAN when gateway mode is enabled",
+			Classification: "internet_vs_lan",
+			Precision:      "network_bytes_not_application_payload",
+		},
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 	if store == nil {
@@ -495,6 +518,23 @@ func writeDailyReport(w http.ResponseWriter, r *http.Request, store *db.Store, c
 		response.TopCategory = summary.TopCategory
 		if summary.ClassifiedBytes+summary.UnknownBytes > 0 {
 			response.ClassificationCoverage = float64(summary.ClassifiedBytes) / float64(summary.ClassifiedBytes+summary.UnknownBytes)
+		}
+	}
+	if reportedValue := r.URL.Query().Get("isp_reported_bytes"); reportedValue != "" {
+		reported, err := strconv.ParseUint(reportedValue, 10, 64)
+		if err == nil {
+			difference := int64(reported) - int64(response.Internet)
+			percent := 0.0
+			if response.Internet > 0 {
+				percent = (float64(difference) / float64(response.Internet)) * 100
+			}
+			response.ISPComparison = &ispComparison{
+				Date:              dateValue,
+				MonitorBytes:      response.Internet,
+				ISPReportedBytes:  reported,
+				DifferenceBytes:   difference,
+				DifferencePercent: percent,
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, response)

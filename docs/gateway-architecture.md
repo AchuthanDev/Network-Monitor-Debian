@@ -200,7 +200,7 @@ Known conflict areas:
 Gateway nftables rules must be idempotent, named, and removable independently:
 
 ```text
-inet network_monitor
+inet network_monitor_gateway
   set monitored_lan4
   set docker4
   counter device/accounting maps

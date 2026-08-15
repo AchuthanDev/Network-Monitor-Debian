@@ -226,6 +226,19 @@ type DailyReportResponse = {
   top_service?: string;
   top_category?: string;
   peak_hour?: string;
+  measurement?: {
+    source: string;
+    scope: string;
+    classification: string;
+    precision: string;
+  };
+  isp_comparison?: {
+    date: string;
+    monitor_measured_bytes: number;
+    isp_reported_bytes: number;
+    difference_bytes: number;
+    difference_percent: number;
+  };
   generated_at: string;
 };
 
@@ -685,7 +698,7 @@ function GatewayView({
       <section className="grid compact">
         <MetricCard label="Gateway Mode" value={cfg?.mode === "gateway" ? "Enabled" : "Disabled"} detail="No live gateway changes are applied" />
         <MetricCard label="WAN" value={discovered?.wan_interface || "Unavailable"} detail={`Gateway ${discovered?.default_route?.gateway ?? "unknown"}`} tone={check("wan_interface")?.status === "pass" ? "good" : "warning"} />
-        <MetricCard label="LAN" value={cfg?.gateway.lan_interface || (lanCandidates[0]?.name ?? "Not connected")} detail={lanCandidates[0] ? `${lanCandidates[0].speed_mbps || "unknown"} Mb/s candidate available` : "No suitable dedicated interface detected"} tone={lanCandidates.length > 0 ? "good" : "warning"} />
+        <MetricCard label="LAN" value={cfg?.gateway.lan_interface || (lanCandidates[0]?.name ?? "Not connected")} detail={lanCandidates[0] ? `${lanCandidates[0].speed_mbps || "unknown"} Mb/s candidate available` : "Connect a dedicated Ethernet interface to continue."} tone={lanCandidates.length > 0 ? "good" : "warning"} />
         <MetricCard label="nftables" value={discovered?.nftables?.available ? "Installed" : "Missing"} detail={discovered?.nftables?.error ?? "Required before live apply"} tone={discovered?.nftables?.available ? "good" : "warning"} />
         <MetricCard label="IPv4 Forwarding" value={discovered?.ip_forwarding?.ipv4_enabled ? "Enabled" : "Disabled"} detail={discovered?.ip_forwarding?.error ?? "Read-only detected state"} />
         <MetricCard label="Pi-hole DNS" value={check("pihole_dns_detected")?.status === "pass" ? "Detected" : "Check"} detail={check("pihole_dns_detected")?.reason ?? "Port 53 DNS evidence"} tone={check("pihole_dns_detected")?.status === "pass" ? "good" : "warning"} />
@@ -920,6 +933,11 @@ function InvestigationView({
   destinations: EndpointState<ListResponse<DestinationRow>>;
 }) {
   const rows = destinations.data?.data ?? [];
+  const [ispReportedGB, setISPReportedGB] = useState("");
+  const reportedBytes = Number(ispReportedGB) > 0 ? Number(ispReportedGB) * 1_000_000_000 : 0;
+  const measuredBytes = dailyReport.data?.internet_bytes ?? 0;
+  const differenceBytes = reportedBytes > 0 ? reportedBytes - measuredBytes : 0;
+  const differencePercent = measuredBytes > 0 ? (differenceBytes / measuredBytes) * 100 : 0;
   return (
     <>
       <SectionTitle icon={Search} eyebrow="Investigation" title="Usage investigation workflow">
@@ -932,6 +950,7 @@ function InvestigationView({
         <MetricCard label="Anytime" value={formatBytes(dailyReport.data?.anytime_bytes ?? 0)} detail="Charged/anytime window" tone="warning" />
         <MetricCard label="Unknown" value={formatBytes(dailyReport.data?.unknown_bytes ?? 0)} detail="Not silently excluded" />
         <MetricCard label="Top Service" value={dailyReport.data?.top_service ?? "Unavailable"} detail={dailyReport.data?.top_category ?? "No classified rows yet"} />
+        <MetricCard label="Measurement Source" value={dailyReport.data?.measurement?.source ?? "nftables"} detail={dailyReport.data?.measurement?.precision ?? "Network bytes, not file size"} />
       </section>
       <section className="panel split">
         <div>
@@ -950,6 +969,31 @@ function InvestigationView({
           </div>
         </div>
         <p className="muted">The backend endpoint is ready at `/api/v1/investigation/hour`; gateway device rows are required before drilldown can show real client usage.</p>
+      </section>
+      <section className="panel split">
+        <div>
+          <PanelTitle icon={Gauge} title="ISP Comparison" />
+          <div className="setting-row">
+            <label htmlFor="isp-reported">ISP reported GB</label>
+            <input
+              id="isp-reported"
+              className="number-input"
+              min="0"
+              step="0.01"
+              type="number"
+              value={ispReportedGB}
+              onChange={(event) => setISPReportedGB(event.target.value)}
+            />
+          </div>
+        </div>
+        <div className="scope-grid">
+          <span>Monitor measured</span>
+          <strong>{formatBytes(measuredBytes)}</strong>
+          <span>ISP reported</span>
+          <strong>{reportedBytes > 0 ? formatBytes(reportedBytes) : "Not entered"}</strong>
+          <span>Difference</span>
+          <strong>{reportedBytes > 0 ? `${formatBytes(Math.abs(differenceBytes))} / ${differencePercent.toFixed(1)}%` : "Unavailable"}</strong>
+        </div>
       </section>
       <section className="panel">
         <PanelTitle icon={BarChart3} title="Top Evidence" />

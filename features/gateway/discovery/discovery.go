@@ -14,19 +14,20 @@ import (
 )
 
 type Report struct {
-	DefaultRoute      *Route          `json:"default_route,omitempty"`
-	WANInterface      string          `json:"wan_interface"`
-	Interfaces        []Interface     `json:"interfaces"`
-	Routes            []Route         `json:"routes"`
-	DockerBridges     []DockerBridge  `json:"docker_bridges"`
-	DockerNetworks    []DockerNetwork `json:"docker_networks"`
-	DHCPListeners     []Listener      `json:"dhcp_listeners"`
-	DNSListeners      []Listener      `json:"dns_listeners"`
-	Nftables          NftablesState   `json:"nftables"`
-	IPForwarding      ForwardingState `json:"ip_forwarding"`
-	ToolAvailability  map[string]bool `json:"tool_availability"`
-	SSHConnectionRisk string          `json:"ssh_connection_risk,omitempty"`
-	Warnings          []string        `json:"warnings"`
+	DefaultRoute      *Route            `json:"default_route,omitempty"`
+	WANInterface      string            `json:"wan_interface"`
+	Interfaces        []Interface       `json:"interfaces"`
+	Routes            []Route           `json:"routes"`
+	DockerBridges     []DockerBridge    `json:"docker_bridges"`
+	DockerNetworks    []DockerNetwork   `json:"docker_networks"`
+	DHCPListeners     []Listener        `json:"dhcp_listeners"`
+	DNSListeners      []Listener        `json:"dns_listeners"`
+	Nftables          NftablesState     `json:"nftables"`
+	IPForwarding      ForwardingState   `json:"ip_forwarding"`
+	ToolAvailability  map[string]bool   `json:"tool_availability"`
+	ToolPaths         map[string]string `json:"tool_paths"`
+	SSHConnectionRisk string            `json:"ssh_connection_risk,omitempty"`
+	Warnings          []string          `json:"warnings"`
 }
 
 type Interface struct {
@@ -88,7 +89,7 @@ type ForwardingState struct {
 }
 
 func Discover(ctx context.Context) Report {
-	report := Report{ToolAvailability: map[string]bool{}}
+	report := Report{ToolAvailability: map[string]bool{}, ToolPaths: map[string]string{}}
 	report.Interfaces = discoverInterfaces(&report)
 	report.Routes = discoverRoutes(ctx, &report)
 	for _, route := range report.Routes {
@@ -185,11 +186,12 @@ func annotateInterfaces(ctx context.Context, interfaces []Interface, routes []Ro
 }
 
 func discoverNetworkManagerDevices(ctx context.Context, report *Report) map[string]nmDevice {
-	report.ToolAvailability["nmcli"] = commandAvailable("nmcli")
+	nmcli := commandPath(report, "nmcli")
+	report.ToolAvailability["nmcli"] = nmcli != ""
 	if !report.ToolAvailability["nmcli"] {
 		return nil
 	}
-	output, err := exec.CommandContext(ctx, "nmcli", "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device", "status").Output()
+	output, err := exec.CommandContext(ctx, nmcli, "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device", "status").Output()
 	if err != nil {
 		report.Warnings = append(report.Warnings, "nmcli device status failed: "+err.Error())
 		return nil
@@ -236,12 +238,13 @@ func lanCandidate(iface Interface, wan string) (bool, string) {
 }
 
 func discoverRoutes(ctx context.Context, report *Report) []Route {
-	report.ToolAvailability["ip"] = commandAvailable("ip")
+	ip := commandPath(report, "ip")
+	report.ToolAvailability["ip"] = ip != ""
 	if !report.ToolAvailability["ip"] {
 		report.Warnings = append(report.Warnings, "ip command unavailable; active routes could not be inspected")
 		return nil
 	}
-	output, err := exec.CommandContext(ctx, "ip", "-j", "route", "show", "table", "main").Output()
+	output, err := exec.CommandContext(ctx, ip, "-j", "route", "show", "table", "main").Output()
 	if err != nil {
 		report.Warnings = append(report.Warnings, "ip route failed: "+err.Error())
 		return nil
@@ -291,12 +294,13 @@ func discoverDockerBridges(interfaces []Interface) []DockerBridge {
 }
 
 func discoverDockerNetworks(ctx context.Context, report *Report) []DockerNetwork {
-	report.ToolAvailability["docker"] = commandAvailable("docker")
+	docker := commandPath(report, "docker")
+	report.ToolAvailability["docker"] = docker != ""
 	if !report.ToolAvailability["docker"] {
 		report.Warnings = append(report.Warnings, "docker command unavailable; Docker network ranges could not be inspected")
 		return nil
 	}
-	output, err := exec.CommandContext(ctx, "docker", "network", "ls", "--format", "{{.Name}}").Output()
+	output, err := exec.CommandContext(ctx, docker, "network", "ls", "--format", "{{.Name}}").Output()
 	if err != nil {
 		report.Warnings = append(report.Warnings, "docker network ls failed: "+err.Error())
 		return nil
@@ -304,7 +308,7 @@ func discoverDockerNetworks(ctx context.Context, report *Report) []DockerNetwork
 	names := strings.Fields(string(output))
 	networks := make([]DockerNetwork, 0, len(names))
 	for _, name := range names {
-		inspect, err := exec.CommandContext(ctx, "docker", "network", "inspect", name).Output()
+		inspect, err := exec.CommandContext(ctx, docker, "network", "inspect", name).Output()
 		if err != nil {
 			report.Warnings = append(report.Warnings, "docker network inspect "+name+" failed: "+err.Error())
 			continue
@@ -333,11 +337,12 @@ func discoverDockerNetworks(ctx context.Context, report *Report) []DockerNetwork
 }
 
 func discoverNftables(ctx context.Context, report *Report) NftablesState {
-	report.ToolAvailability["nft"] = commandAvailable("nft")
+	nft := commandPath(report, "nft")
+	report.ToolAvailability["nft"] = nft != ""
 	if !report.ToolAvailability["nft"] {
 		return NftablesState{Available: false, Error: "nft command unavailable"}
 	}
-	output, err := exec.CommandContext(ctx, "nft", "list", "ruleset").CombinedOutput()
+	output, err := exec.CommandContext(ctx, nft, "list", "ruleset").CombinedOutput()
 	if err != nil {
 		return NftablesState{Available: true, Error: string(bytes.TrimSpace(output)) + " " + err.Error()}
 	}
@@ -419,9 +424,19 @@ func parseProcAddress(value string, ipv6 bool) (string, uint16, bool) {
 	return net.IPv4(byte(rawIP), byte(rawIP>>8), byte(rawIP>>16), byte(rawIP>>24)).String(), uint16(rawPort), true
 }
 
-func commandAvailable(name string) bool {
-	_, err := exec.LookPath(name)
-	return err == nil
+func commandPath(report *Report, name string) string {
+	if path, err := exec.LookPath(name); err == nil {
+		report.ToolPaths[name] = path
+		return path
+	}
+	for _, dir := range []string{"/usr/sbin", "/sbin", "/usr/bin", "/bin"} {
+		path := dir + "/" + name
+		if _, err := os.Stat(path); err == nil {
+			report.ToolPaths[name] = path
+			return path
+		}
+	}
+	return ""
 }
 
 func readBoolFile(path string) (bool, error) {

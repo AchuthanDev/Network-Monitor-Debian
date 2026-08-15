@@ -23,11 +23,33 @@ func TestReadinessRequiresGigabitFullDuplexDedicatedLAN(t *testing.T) {
 	}
 
 	ready := Evaluate(cfg, report)
-	assertCheck(t, ready, "lan_link_speed", StatusFail)
+	assertCheck(t, ready, "lan_link_speed", StatusWarning)
 	assertCheck(t, ready, "lan_full_duplex", StatusFail)
 	if ready.Ready {
-		t.Fatalf("readiness must fail for 100 Mbps half-duplex LAN")
+		t.Fatalf("readiness must fail for half-duplex LAN")
 	}
+}
+
+func TestReadinessWarnsForHundredMbpsFullDuplexLAN(t *testing.T) {
+	cfg := gatewayconfig.Default()
+	cfg.Gateway.WANInterface = "wan0"
+	cfg.Gateway.LANInterface = "lan0"
+
+	report := discovery.Report{
+		WANInterface: "wan0",
+		Interfaces: []discovery.Interface{
+			{Name: "wan0", IPv4Addresses: []string{"192.168.1.10/24"}},
+			{Name: "lan0", OperState: "up", Carrier: "1", SpeedMbps: 100, Duplex: "full", CandidateLAN: true},
+		},
+		Nftables:         discovery.NftablesState{Available: true},
+		IPForwarding:     discovery.ForwardingState{IPv4Enabled: true},
+		ToolAvailability: map[string]bool{"docker": true},
+		Routes:           []discovery.Route{{Destination: "192.168.1.0/24", Interface: "wan0"}},
+	}
+
+	ready := Evaluate(cfg, report)
+	assertCheck(t, ready, "lan_link_speed", StatusWarning)
+	assertCheck(t, ready, "lan_full_duplex", StatusPass)
 }
 
 func TestReadinessPreservesSSHManagementOnWAN(t *testing.T) {
